@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cordero y Asociados - Control de Inventario</title>
+    <title>Cordero y Asociados - Control de Inventario Ultra 4K (Secure)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React 18 Core -->
@@ -88,12 +88,8 @@
             -webkit-backdrop-filter: blur(32px);
         }
 
-        .btn-haptic {
-            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .btn-haptic:active {
-            transform: scale(0.96);
-        }
+        .btn-haptic { transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1); }
+        .btn-haptic:active { transform: scale(0.96); }
     </style>
 </head>
 <body class="selection:bg-indigo-500 selection:text-white antialiased bg-[#05070E] text-slate-100 min-h-screen relative overflow-x-hidden">
@@ -114,7 +110,20 @@
 
         const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-        // Memoización de Tooltips interactivos
+        // ==========================================
+        // 🛡️ FUNCION DE SANITIZACIÓN ANTI-HACKERS
+        // ==========================================
+        const sanitizeInput = (input) => {
+            if (typeof input !== 'string') return input;
+            // 1. Elimina etiquetas HTML y scripts maliciosos (XSS)
+            let clean = input.replace(/<[^>]*>?/gm, '');
+            // 2. Previene inyección de fórmulas en CSV/Excel (=, +, -, @)
+            if (/^[=+\-@]/.*$/.test(clean)) {
+                clean = "'" + clean;
+            }
+            return clean.trim();
+        };
+
         const Tooltip = memo(({ text, position = 'top', children }) => {
             const [show, setShow] = useState(false);
 
@@ -145,7 +154,6 @@
             );
         });
 
-        // Avatar con Tooltip integrado
         const Avatar = memo(({ nombre }) => {
             const obtenerIniciales = (str) => {
                 if (!str) return '??';
@@ -249,7 +257,7 @@
 
             useEffect(() => {
                 const timer = setTimeout(() => {
-                    setBusqueda(busquedaInput);
+                    setBusqueda(sanitizeInput(busquedaInput));
                 }, 180);
                 return () => clearTimeout(timer);
             }, [busquedaInput]);
@@ -326,12 +334,15 @@
             const handleLogin = async (e) => {
                 e.preventDefault();
                 setLoginError('');
+                const cleanUser = sanitizeInput(loginUser);
+                const cleanPass = sanitizeInput(loginPass);
+
                 try {
                     const { data, error } = await supabase
                         .from('usuarios')
                         .select('*')
-                        .eq('username', loginUser.trim())
-                        .eq('password', loginPass.trim())
+                        .eq('username', cleanUser)
+                        .eq('password', cleanPass)
                         .single();
 
                     if (error || !data) {
@@ -356,9 +367,9 @@
             const handleCrearUsuario = async (e) => {
                 e.preventDefault();
                 const nuevoUserObj = {
-                    username: formNuevoUsuario.username.trim(),
-                    password: formNuevoUsuario.password.trim(),
-                    nombre: formNuevoUsuario.nombre.trim(),
+                    username: sanitizeInput(formNuevoUsuario.username),
+                    password: sanitizeInput(formNuevoUsuario.password),
+                    nombre: sanitizeInput(formNuevoUsuario.nombre),
                     rol: formNuevoUsuario.rol,
                     permisos: formNuevoUsuario.permisos
                 };
@@ -403,9 +414,9 @@
                 if (!usuarioEditando) return;
 
                 const datosActualizar = {
-                    nombre: formEditarUsuario.nombre.trim(),
-                    username: formEditarUsuario.username.trim(),
-                    password: formEditarUsuario.password.trim(),
+                    nombre: sanitizeInput(formEditarUsuario.nombre),
+                    username: sanitizeInput(formEditarUsuario.username),
+                    password: sanitizeInput(formEditarUsuario.password),
                     rol: formEditarUsuario.rol,
                     permisos: formEditarUsuario.permisos
                 };
@@ -436,107 +447,6 @@
                     setUsuariosList(anteriorEstado);
                 }
             };
-
-            const handleTogglePermisoDirecto = useCallback(async (user, permisoKey) => {
-                const permisosAnteriores = user.permisos || { asignar: true, productos: true, deshabilitados: true, personal: true };
-                const nuevosPermisos = {
-                    ...permisosAnteriores,
-                    [permisoKey]: !permisosAnteriores[permisoKey]
-                };
-
-                setUsuariosList(prev => prev.map(u => u.id === user.id ? { ...u, permisos: nuevosPermisos } : u));
-
-                try {
-                    const { error } = await supabase
-                        .from('usuarios')
-                        .update({ permisos: nuevosPermisos })
-                        .eq('id', user.id);
-
-                    if (error) {
-                        mostrarToast('Error al cambiar permisos.', 'error');
-                        fetchData();
-                    } else {
-                        mostrarToast(`Permisos de ${user.nombre} actualizados.`);
-                    }
-                } catch (err) {
-                    mostrarToast('Error al cambiar permisos.', 'error');
-                    fetchData();
-                }
-            }, [fetchData, mostrarToast]);
-
-            const handleEliminarUsuario = useCallback(async (idUser, nombre) => {
-                if (idUser === usuarioSesion.id) {
-                    mostrarToast('No puedes eliminar tu propio usuario en sesión.', 'error');
-                    return;
-                }
-                if (!window.confirm(`¿Eliminar al usuario "${nombre}"?`)) return;
-
-                setUsuariosList(prev => prev.filter(u => u.id !== idUser));
-
-                try {
-                    const { error } = await supabase.from('usuarios').delete().eq('id', idUser);
-                    if (error) {
-                        mostrarToast('Error al eliminar usuario.', 'error');
-                        fetchData();
-                    } else {
-                        mostrarToast('Usuario eliminado.');
-                    }
-                } catch (err) {
-                    mostrarToast('Error al eliminar usuario.', 'error');
-                    fetchData();
-                }
-            }, [usuarioSesion, fetchData, mostrarToast]);
-
-            const tienePermiso = useCallback((clave) => {
-                if (!usuarioSesion) return false;
-                if (usuarioSesion.rol === 'ADMIN_PRINCIPAL') return true;
-                return !!usuarioSesion.permisos?.[clave];
-            }, [usuarioSesion]);
-
-            const formatearFechaClean = useCallback((item) => {
-                const rawFecha = item.fecha_asignacion || item.created_at || item.fecha;
-                if (!rawFecha) return { fechaStr: 'S/F', horaStr: '--:--' };
-                const fecha = new Date(rawFecha);
-                if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
-
-                const fechaStr = fecha.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
-                const horaStr = fecha.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-                return { fechaStr, horaStr };
-            }, []);
-
-            const descargarInventarioCSV = useCallback(() => {
-                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad_Total_Stock', 'Observaciones', 'Estado'];
-                let filas = [];
-
-                if (productosUnicosGlobalList.length > 0) {
-                    filas = productosUnicosGlobalList.map(item => {
-                        const prodRef = productos.find(p => p.sku === item.sku);
-                        const obsLimpia = prodRef ? (prodRef.observaciones || '').replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim() : '';
-                        const esActivo = item.cantidadDeshabilitada === 0 ? 'ACTIVO' : 'DESHABILITADO';
-
-                        return [
-                            item.sku || '',
-                            prodRef ? prodRef.categoria : 'General',
-                            item.producto || '',
-                            item.cantidadTotal || 0,
-                            obsLimpia || 'Sin observaciones',
-                            esActivo
-                        ];
-                    });
-                }
-
-                const csvContent = '\uFEFF' + [cabecera.join(';'), ...filas.map(f => f.join(';'))].join('\n');
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.setAttribute('href', url);
-                link.setAttribute('download', `catalogo_productos_${new Date().toISOString().slice(0,10)}.csv`);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                mostrarToast('Catálogo de productos exportado.');
-            }, [productosUnicosGlobalList, productos, mostrarToast]);
 
             const handleImportarCSV = useCallback(async (e) => {
                 const archivo = e.target.files[0];
@@ -571,7 +481,7 @@
 
                         for (const fila of filas) {
                             const separador = fila.includes(';') ? ';' : ',';
-                            const columnas = fila.split(separador).map(c => c.trim().replace(/^["']|["']$/g, ''));
+                            const columnas = fila.split(separador).map(c => sanitizeInput(c.replace(/^["']|["']$/g, '')));
                             
                             if (columnas.length >= 3) {
                                 let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', estadoStr = '';
@@ -587,7 +497,7 @@
                                 }
 
                                 const nuevaCant = parseInt(cantidadStr, 10);
-                                const skuNorm = sku ? sku.trim().toUpperCase() : '';
+                                const skuNorm = sku ? sku.toUpperCase() : '';
                                 const esActivo = estadoStr ? estadoStr.toUpperCase() !== 'DESHABILITADO' : true;
 
                                 if (productoNombre && !isNaN(nuevaCant) && nuevaCant >= 0) {
@@ -641,98 +551,53 @@
                 lector.readAsText(archivo, 'UTF-8');
             }, [fetchData, mostrarToast]);
 
-            const handleGuardarNuevaCategoria = async () => {
-                if (!nuevaCatNombre.trim()) return;
+            const handleSaveProducto = async (e) => {
+                e.preventDefault();
+                const nuevoSKU = generarSKU();
+                const nuevoItem = {
+                    sku: nuevoSKU,
+                    categoria: sanitizeInput(formProducto.categoria),
+                    producto: sanitizeInput(formProducto.producto),
+                    cantidad: Number(formProducto.cantidad),
+                    observaciones: sanitizeInput(formProducto.observaciones),
+                    personal_asignado: '',
+                    activo: true,
+                    fecha_asignacion: new Date().toISOString()
+                };
+
                 try {
-                    const { data, error } = await supabase.from('categorias').insert([{ nombre: nuevaCatNombre.trim() }]).select();
+                    const { data, error } = await supabase.from('productos').insert([nuevoItem]).select();
                     if (!error) {
-                        mostrarToast('Categoría creada exitosamente.');
-                        if (data && data[0]) setCategoriasList(prev => [...prev, data[0]]);
-                        setFormProducto(prev => ({ ...prev, categoria: nuevaCatNombre.trim() }));
-                        setNuevaCatNombre('');
-                        setCreandoCategoria(false);
+                        setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '' });
+                        if (data && data[0]) setProductos(prev => [data[0], ...prev]);
+                        else fetchData();
+                        mostrarToast(`Producto registrado. SKU: ${nuevoSKU}`);
                     }
-                } catch (e) {
-                    console.error(e);
+                } catch (err) {
+                    mostrarToast('Error al registrar producto.', 'error');
                 }
             };
 
-            const handleEliminarCategoria = async (idCat, nombreCat) => {
-                if (!window.confirm(`¿Eliminar la categoría "${nombreCat}"?`)) return;
-                setCategoriasList(prev => prev.filter(c => c.id !== idCat));
-                try {
-                    const { error } = await supabase.from('categorias').delete().eq('id', idCat);
-                    if (!error) {
-                        mostrarToast('Categoría eliminada.');
-                        if (formProducto.categoria === nombreCat) setFormProducto(prev => ({ ...prev, categoria: '' }));
-                    } else {
-                        fetchData();
-                    }
-                } catch (e) {
-                    console.error(e);
-                    fetchData();
-                }
-            };
+            const tienePermiso = useCallback((clave) => {
+                if (!usuarioSesion) return false;
+                if (usuarioSesion.rol === 'ADMIN_PRINCIPAL') return true;
+                return !!usuarioSesion.permisos?.[clave];
+            }, [usuarioSesion]);
 
-            const handleGuardarNuevoCargo = async () => {
-                if (!nuevoCargoNombre.trim()) return;
-                try {
-                    const { data, error } = await supabase.from('cargos').insert([{ nombre: nuevoCargoNombre.trim() }]).select();
-                    if (!error) {
-                        mostrarToast('Cargo creado exitosamente.');
-                        if (data && data[0]) setCargosList(prev => [...prev, data[0]]);
-                        setFormPersonal(prev => ({ ...prev, cargo: nuevoCargoNombre.trim() }));
-                        setNuevoCargoNombre('');
-                        setCreandoCargo(false);
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            };
+            const formatearFechaClean = useCallback((item) => {
+                const rawFecha = item.fecha_asignacion || item.created_at || item.fecha;
+                if (!rawFecha) return { fechaStr: 'S/F', horaStr: '--:--' };
+                const fecha = new Date(rawFecha);
+                if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
 
-            const handleEliminarCargo = async (idCargo, nombreCargo) => {
-                if (!window.confirm(`¿Eliminar el cargo "${nombreCargo}"?`)) return;
-                setCargosList(prev => prev.filter(c => c.id !== idCargo));
-                try {
-                    const { error } = await supabase.from('cargos').delete().eq('id', idCargo);
-                    if (!error) {
-                        mostrarToast('Cargo eliminado.');
-                        if (formPersonal.cargo === nombreCargo) setFormPersonal(prev => ({ ...prev, cargo: '' }));
-                    } else {
-                        fetchData();
-                    }
-                } catch (e) {
-                    console.error(e);
-                    fetchData();
-                }
-            };
+                const fechaStr = fecha.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+                const horaStr = fecha.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-            const generarSKU = useCallback(() => {
-                const skusExistentes = new Set();
-                productos.forEach(p => {
-                    if (p.sku && p.sku.startsWith('PROD-')) {
-                        const num = parseInt(p.sku.replace('PROD-', ''), 10);
-                        if (!isNaN(num)) skusExistentes.add(num);
-                    }
-                });
-                let nuevoNum = 1;
-                while (skusExistentes.has(nuevoNum)) nuevoNum++;
-                return `PROD-${String(nuevoNum).padStart(3, '0')}`;
-            }, [productos]);
+                return { fechaStr, horaStr };
+            }, []);
 
             const productosActivos = useMemo(() => productos.filter(p => p.activo !== false), [productos]);
             
-            const productosDeshabilitados = useMemo(() => {
-                return Object.values(
-                    productos.filter(p => p.activo === false).reduce((acc, curr) => {
-                        const key = curr.sku;
-                        if (!acc[key]) acc[key] = { sku: curr.sku, producto: curr.producto, categoria: curr.categoria, cantidadTotal: 0 };
-                        acc[key].cantidadTotal += Number(curr.cantidad) || 0;
-                        return acc;
-                    }, {})
-                );
-            }, [productos]);
-
             const productosUnicosGlobalList = useMemo(() => {
                 return Object.values(
                     productos.reduce((acc, curr) => {
@@ -776,580 +641,18 @@
                 ).sort((a, b) => a.sku.localeCompare(b.sku));
             }, [productosActivos]);
 
-            const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
-            const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
-
-            const listaHistorialAsignaciones = useMemo(() => {
-                return productos.filter(p => {
-                    const tienePersonal = p.personal_asignado && p.personal_asignado.trim() !== '';
-                    const esActivo = p.activo !== false;
-                    return tienePersonal && esActivo;
-                }).sort((a, b) => {
-                    const fA = new Date(a.fecha_asignacion || a.created_at || 0).getTime();
-                    const fB = new Date(b.fecha_asignacion || b.created_at || 0).getTime();
-                    return fB - fA || b.id - a.id;
+            const generarSKU = useCallback(() => {
+                const skusExistentes = new Set();
+                productos.forEach(p => {
+                    if (p.sku && p.sku.startsWith('PROD-')) {
+                        const num = parseInt(p.sku.replace('PROD-', ''), 10);
+                        if (!isNaN(num)) skusExistentes.add(num);
+                    }
                 });
+                let nuevoNum = 1;
+                while (skusExistentes.has(nuevoNum)) nuevoNum++;
+                return `PROD-${String(nuevoNum).padStart(3, '0')}`;
             }, [productos]);
-
-            const historialAgrupado = useMemo(() => {
-                const mapaLotes = new Map();
-
-                listaHistorialAsignaciones.forEach(item => {
-                    const fechaObj = new Date(item.fecha_asignacion || item.created_at || 0);
-                    const tiempoKey = item.observaciones && item.observaciones.includes('LOTE-') 
-                        ? item.observaciones.match(/LOTE-\d+/)?.[0] || fechaObj.toISOString().slice(0, 16)
-                        : fechaObj.toISOString().slice(0, 16);
-
-                    if (!mapaLotes.has(tiempoKey)) {
-                        mapaLotes.set(tiempoKey, []);
-                    }
-                    mapaLotes.get(tiempoKey).push(item);
-                });
-
-                const lotesProcesados = [];
-                mapaLotes.forEach((items, key) => {
-                    if (items.length > 1) {
-                        const prodsUnicos = Array.from(new Set(items.map(i => i.producto)));
-                        const persUnicos = Array.from(new Set(items.map(i => i.personal_asignado)));
-                        const cantTotal = items.reduce((sum, i) => sum + (Number(i.cantidad) || 0), 0);
-
-                        const productosAgrupadosMap = items.reduce((acc, current) => {
-                            const pKey = current.sku;
-                            if (!acc[pKey]) {
-                                acc[pKey] = {
-                                    sku: current.sku,
-                                    producto: current.producto,
-                                    categoria: current.categoria,
-                                    cantidadTotal: 0,
-                                    colaboradores: new Set()
-                                };
-                            }
-                            acc[pKey].cantidadTotal += Number(current.cantidad) || 0;
-                            acc[pKey].colaboradores.add(current.personal_asignado);
-                            return acc;
-                        }, {});
-
-                        const productosAgrupadosLote = Object.values(productosAgrupadosMap).map(p => ({
-                            ...p,
-                            colaboradores: Array.from(p.colaboradores)
-                        }));
-
-                        let obsLoteLimpia = items[0].observaciones || 'Sin observaciones';
-                        obsLoteLimpia = obsLoteLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
-                        if (!obsLoteLimpia) obsLoteLimpia = 'Sin observaciones';
-
-                        lotesProcesados.push({
-                            esLote: true,
-                            loteKey: key,
-                            fecha_asignacion: items[0].fecha_asignacion || items[0].created_at,
-                            totalItems: items.length,
-                            prodsCount: prodsUnicos.length,
-                            persCount: persUnicos.length,
-                            cantTotal,
-                            items,
-                            productosAgrupadosLote,
-                            observaciones: obsLoteLimpia
-                        });
-                    } else {
-                        let obsIndividualLimpia = items[0].observaciones || '-';
-                        obsIndividualLimpia = obsIndividualLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
-                        if (!obsIndividualLimpia) obsIndividualLimpia = '-';
-
-                        lotesProcesados.push({
-                            esLote: false,
-                            loteKey: key,
-                            ...items[0],
-                            observacionesLimpia: obsIndividualLimpia
-                        });
-                    }
-                });
-
-                return lotesProcesados;
-            }, [listaHistorialAsignaciones]);
-
-            const historialFiltrado = useMemo(() => {
-                const term = busqueda.toLowerCase().trim();
-                return historialAgrupado.filter(grupo => {
-                    if (grupo.esLote) {
-                        const coincideEnItems = grupo.items.some(item => {
-                            return (item.producto && item.producto.toLowerCase().includes(term)) ||
-                                (item.personal_asignado && item.personal_asignado.toLowerCase().includes(term)) ||
-                                (item.categoria && item.categoria.toLowerCase().includes(term)) ||
-                                (item.sku && item.sku.toLowerCase().includes(term));
-                        });
-
-                        const coincideCat = filtroCategoria === 'TODAS' || grupo.items.some(i => i.categoria && i.categoria.toUpperCase() === filtroCategoria.toUpperCase());
-                        return coincideEnItems && coincideCat;
-                    } else {
-                        const coincideTexto = (grupo.producto && grupo.producto.toLowerCase().includes(term)) ||
-                            (grupo.personal_asignado && grupo.personal_asignado.toLowerCase().includes(term)) ||
-                            (grupo.categoria && grupo.categoria.toLowerCase().includes(term)) ||
-                            (grupo.sku && grupo.sku.toLowerCase().includes(term));
-
-                        const coincideCat = filtroCategoria === 'TODAS' || (grupo.categoria && grupo.categoria.toUpperCase() === filtroCategoria.toUpperCase());
-
-                        return coincideTexto && coincideCat;
-                    }
-                });
-            }, [historialAgrupado, busqueda, filtroCategoria]);
-
-            const toggleLoteExpandido = useCallback((loteKey) => {
-                setLotesExpandidosMap(prev => ({ ...prev, [loteKey]: !prev[loteKey] }));
-            }, []);
-
-            const toggleColaboradorExpandido = useCallback((nombreColaborador) => {
-                setColaboradoresExpandidosMap(prev => ({ ...prev, [nombreColaborador]: !prev[nombreColaborador] }));
-            }, []);
-
-            const asignacionesAgrupadasListMap = useMemo(() => {
-                const mapTemp = productosActivos
-                    .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
-                    .reduce((acc, curr) => {
-                        const pers = curr.personal_asignado;
-                        if (!acc[pers]) acc[pers] = {};
-                        const skuKey = curr.sku;
-
-                        if (!acc[pers][skuKey]) {
-                            acc[pers][skuKey] = {
-                                id: curr.id,
-                                ids: [curr.id],
-                                sku: curr.sku,
-                                producto: curr.producto,
-                                categoria: curr.categoria,
-                                cantidad: Number(curr.cantidad) || 0,
-                                observaciones: curr.observaciones,
-                                personal_asignado: curr.personal_asignado,
-                                fecha_asignacion: curr.fecha_asignacion || curr.created_at
-                            };
-                        } else {
-                            acc[pers][skuKey].cantidad += Number(curr.cantidad) || 0;
-                            acc[pers][skuKey].ids.push(curr.id);
-                            if (new Date(curr.fecha_asignacion || curr.created_at) > new Date(acc[pers][skuKey].fecha_asignacion)) {
-                                acc[pers][skuKey].fecha_asignacion = curr.fecha_asignacion || curr.created_at;
-                                acc[pers][skuKey].observaciones = curr.observaciones;
-                            }
-                        }
-                        return acc;
-                    }, {});
-
-                return Object.entries(mapTemp).reduce((acc, [colab, objSKUs]) => {
-                    acc[colab] = Object.values(objSKUs);
-                    return acc;
-                }, {});
-            }, [productosActivos]);
-
-            const handleSaveProducto = async (e) => {
-                e.preventDefault();
-                const nuevoSKU = generarSKU();
-                const nuevoItem = {
-                    sku: nuevoSKU,
-                    categoria: formProducto.categoria,
-                    producto: formProducto.producto,
-                    cantidad: Number(formProducto.cantidad),
-                    observaciones: formProducto.observaciones,
-                    personal_asignado: '',
-                    activo: true,
-                    fecha_asignacion: new Date().toISOString()
-                };
-
-                try {
-                    const { data, error } = await supabase.from('productos').insert([nuevoItem]).select();
-                    if (!error) {
-                        setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '' });
-                        if (data && data[0]) {
-                            setProductos(prev => [data[0], ...prev]);
-                        } else {
-                            fetchData();
-                        }
-                        mostrarToast(`Producto registrado. SKU: ${nuevoSKU}`);
-                    } else {
-                        mostrarToast(`Error BD: ${error.message}`, 'error');
-                    }
-                } catch (err) {
-                    mostrarToast('Error al registrar producto.', 'error');
-                }
-            };
-
-            const handleRestockProducto = async (e) => {
-                e.preventDefault();
-                if (!formRestock.sku || !formRestock.cantidadExtra || Number(formRestock.cantidadExtra) <= 0) {
-                    mostrarToast('Selecciona un producto e ingresa una cantidad válida.', 'error');
-                    return;
-                }
-
-                const cantidadSumar = Number(formRestock.cantidadExtra);
-                const filasExistentesMismoSKU = productos.filter(p => p.sku === formRestock.sku);
-
-                if (filasExistentesMismoSKU.length > 0) {
-                    const filaPrincipal = filasExistentesMismoSKU[0];
-                    const nuevaCant = Number(filaPrincipal.cantidad) + cantidadSumar;
-
-                    setProductos(prev => prev.map(p => p.id === filaPrincipal.id ? { ...p, cantidad: nuevaCant } : p));
-
-                    try {
-                        await supabase.from('productos').update({ cantidad: nuevaCant }).eq('id', filaPrincipal.id);
-                        setFormRestock({ sku: '', cantidadExtra: '' });
-                        mostrarToast('¡Stock reabastecido correctamente!');
-                    } catch (err) {
-                        fetchData();
-                        mostrarToast('Error al reabastecer stock', 'error');
-                    }
-                } else {
-                    try {
-                        const { data } = await supabase.from('productos').insert([{
-                            sku: formRestock.sku,
-                            categoria: 'General',
-                            producto: formRestock.sku,
-                            cantidad: cantidadSumar,
-                            observaciones: 'Reabastecido',
-                            personal_asignado: '',
-                            activo: true,
-                            fecha_asignacion: new Date().toISOString()
-                        }]).select();
-
-                        if (data && data[0]) setProductos(prev => [data[0], ...prev]);
-                        else fetchData();
-
-                        setFormRestock({ sku: '', cantidadExtra: '' });
-                        mostrarToast('¡Stock reabastecido correctamente!');
-                    } catch (err) {
-                        fetchData();
-                    }
-                }
-            };
-
-            const handleDeshabilitarProducto = async (e) => {
-                e.preventDefault();
-                if (!skuADeshabilitar) {
-                    mostrarToast('Selecciona un producto.', 'error');
-                    return;
-                }
-                const prodRef = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
-                const nombreProd = prodRef ? prodRef.producto : skuADeshabilitar;
-
-                if (!window.confirm(`¿Deshabilitar el producto "${nombreProd}" (${skuADeshabilitar})?`)) return;
-
-                setProductos(prev => prev.map(p => p.sku === skuADeshabilitar ? { ...p, activo: false } : p));
-
-                try {
-                    const { error } = await supabase.from('productos').update({ activo: false }).eq('sku', skuADeshabilitar);
-                    if (!error) {
-                        setSkuADeshabilitar('');
-                        mostrarToast('Producto deshabilitado correctamente.');
-                    } else {
-                        fetchData();
-                    }
-                } catch (err) {
-                    console.error(err);
-                    fetchData();
-                    mostrarToast('Error al deshabilitar el producto.', 'error');
-                }
-            };
-
-            const handleReactivarProducto = useCallback(async (skuReactivar) => {
-                setProductos(prev => prev.map(p => p.sku === skuReactivar ? { ...p, activo: true } : p));
-                try {
-                    const { error } = await supabase.from('productos').update({ activo: true }).eq('sku', skuReactivar);
-                    if (!error) {
-                        mostrarToast(`Producto (${skuReactivar}) reactivado con éxito.`);
-                    } else {
-                        fetchData();
-                    }
-                } catch (err) {
-                    console.error(err);
-                    fetchData();
-                }
-            }, [fetchData, mostrarToast]);
-
-            const handleEliminarDefinitivo = useCallback(async (skuEliminar) => {
-                if (!window.confirm(`¿Estás seguro de ELIMINAR DEFINITIVAMENTE el producto (${skuEliminar})?`)) return;
-                setProductos(prev => prev.filter(p => p.sku !== skuEliminar));
-                try {
-                    const { error } = await supabase.from('productos').delete().eq('sku', skuEliminar);
-                    if (!error) {
-                        mostrarToast(`Producto (${skuEliminar}) eliminado definitivamente.`, 'error');
-                    } else {
-                        fetchData();
-                    }
-                } catch (err) {
-                    console.error(err);
-                    fetchData();
-                }
-            }, [fetchData, mostrarToast]);
-
-            const toggleProductoSeleccionado = useCallback((idProd) => {
-                setProdSeleccionadosMap(prev => {
-                    const copy = { ...prev };
-                    if (copy[idProd]) delete copy[idProd];
-                    else copy[idProd] = 1;
-                    return copy;
-                });
-            }, []);
-
-            const updateCantProductoSeleccionado = useCallback((idProd, cant) => {
-                const val = Math.max(1, Number(cant) || 1);
-                setProdSeleccionadosMap(prev => ({ ...prev, [idProd]: val }));
-            }, []);
-
-            const togglePersonalSeleccionado = useCallback((nombre) => {
-                setPersonalSeleccionados(prev => 
-                    prev.includes(nombre) ? prev.filter(n => n !== nombre) : [...prev, nombre]
-                );
-            }, []);
-
-            const handleConfirmarAsignacionMultiple = async (e) => {
-                e.preventDefault();
-                if (!supabase) return;
-
-                const prodIds = Object.keys(prodSeleccionadosMap);
-                if (prodIds.length === 0 || personalSeleccionados.length === 0) {
-                    mostrarToast('Selecciona al menos un producto y un colaborador.', 'error');
-                    return;
-                }
-
-                try {
-                    for (const idProd of prodIds) {
-                        const prodOriginal = productosLibresList.find(p => p.id == idProd);
-                        if (!prodOriginal) continue;
-
-                        const cantPorPersona = Number(prodSeleccionadosMap[idProd]) || 1;
-                        const requerimientoTotal = cantPorPersona * personalSeleccionados.length;
-                        const stockLibreDisponible = prodOriginal.cantidad;
-
-                        if (requerimientoTotal > stockLibreDisponible) {
-                            mostrarToast(`No hay suficiente stock libre para "${prodOriginal.producto}". Se necesitan ${requerimientoTotal} unidades y solo hay ${stockLibreDisponible} disponibles.`, 'error');
-                            return;
-                        }
-                    }
-
-                    const timestampActualISO = new Date().toISOString();
-                    const tagLote = `LOTE-${Date.now()}`;
-                    const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación (${tagLote})`;
-
-                    const promesasDB = [];
-
-                    for (const idProd of prodIds) {
-                        const prodOriginal = productosLibresList.find(p => p.id == idProd);
-                        if (!prodOriginal) continue;
-                        const cantPorPersona = Number(prodSeleccionadosMap[idProd]) || 1;
-
-                        for (const persNombre of personalSeleccionados) {
-                            const asignacionExistente = productosActivos.find(
-                                p => p.sku === prodOriginal.sku && p.personal_asignado === persNombre
-                            );
-
-                            if (asignacionExistente) {
-                                const nuevaCant = Number(asignacionExistente.cantidad) + cantPorPersona;
-                                promesasDB.push(
-                                    supabase.from('productos').update({
-                                        cantidad: nuevaCant,
-                                        observaciones: obsConLote,
-                                        fecha_asignacion: timestampActualISO
-                                    }).eq('id', asignacionExistente.id)
-                                );
-                            } else {
-                                promesasDB.push(
-                                    supabase.from('productos').insert([{
-                                        sku: prodOriginal.sku,
-                                        categoria: prodOriginal.categoria,
-                                        producto: prodOriginal.producto,
-                                        cantidad: cantPorPersona,
-                                        observaciones: obsConLote,
-                                        personal_asignado: persNombre,
-                                        activo: true,
-                                        fecha_asignacion: timestampActualISO
-                                    }])
-                                );
-                            }
-                        }
-
-                        let pendienteDescontar = cantPorPersona * personalSeleccionados.length;
-                        const filasStockLibre = productosActivos.filter(p => p.sku === prodOriginal.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
-
-                        for (const filaLibre of filasStockLibre) {
-                            if (pendienteDescontar <= 0) break;
-                            const cantFila = Number(filaLibre.cantidad);
-                            if (cantFila <= pendienteDescontar) {
-                                promesasDB.push(supabase.from('productos').delete().eq('id', filaLibre.id));
-                                pendienteDescontar -= cantFila;
-                            } else {
-                                promesasDB.push(supabase.from('productos').update({ cantidad: cantFila - pendienteDescontar }).eq('id', filaLibre.id));
-                                pendienteDescontar = 0;
-                            }
-                        }
-                    }
-
-                    await Promise.all(promesasDB);
-
-                    setProdSeleccionadosMap({});
-                    setPersonalSeleccionados([]);
-                    setObsAsignacion('');
-                    await fetchData();
-                    mostrarToast('¡Asignación guardada con éxito!');
-                } catch (err) {
-                    console.error(err);
-                    mostrarToast('Error al procesar asignación.', 'error');
-                }
-            };
-
-            const handleSavePersonal = async (e) => {
-                e.preventDefault();
-                try {
-                    const { data, error } = await supabase.from('personal').insert([{
-                        nombre: formPersonal.nombre,
-                        cargo: formPersonal.cargo
-                    }]).select();
-
-                    if (!error) {
-                        setFormPersonal({ nombre: '', cargo: '' });
-                        if (data && data[0]) setPersonalList(prev => [...prev, data[0]]);
-                        else fetchData();
-                        mostrarToast('Personal registrado con éxito.');
-                    }
-                } catch (err) {
-                    mostrarToast('Error al crear personal.', 'error');
-                }
-            };
-
-            const handleDevolverTodoColaborador = async (nombreColaborador) => {
-                if (!window.confirm(`¿Devolver TODOS los productos asignados a "${nombreColaborador}" al stock libre?`)) return;
-
-                try {
-                    const asignacionesDelPersonal = productosActivos.filter(p => p.personal_asignado === nombreColaborador);
-                    let totalUnidadesDevueltas = 0;
-                    const promesasDB = [];
-
-                    for (const item of asignacionesDelPersonal) {
-                        const cantItem = Number(item.cantidad) || 1;
-                        totalUnidadesDevueltas += cantItem;
-
-                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
-
-                        if (stockLibreExistente) {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + cantItem }).eq('id', stockLibreExistente.id));
-                        } else {
-                            promesasDB.push(supabase.from('productos').insert([{
-                                sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: cantItem, observaciones: 'Devuelto masivo', personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
-                            }]));
-                        }
-                        promesasDB.push(supabase.from('productos').delete().eq('id', item.id));
-                    }
-
-                    await Promise.all(promesasDB);
-                    await fetchData();
-                    mostrarToast(`Se devolvieron ${totalUnidadesDevueltas} unidades de "${nombreColaborador}" al stock libre.`);
-                } catch (err) {
-                    console.error(err);
-                    mostrarToast('Error al devolver todos los productos.', 'error');
-                }
-            };
-
-            const handleEjecutarDevolucionAgrupada = async (asigItem) => {
-                const cantADevolver = Number(cantDevolver);
-                if (cantADevolver <= 0 || cantADevolver > asigItem.cantidad) {
-                    mostrarToast('Ingresa una cantidad válida a devolver.', 'error');
-                    return;
-                }
-
-                try {
-                    const promesasDB = [];
-                    const stockLibreExistente = productosActivos.find(p => p.sku === asigItem.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
-
-                    if (stockLibreExistente) {
-                        const nuevaCantLibre = Number(stockLibreExistente.cantidad) + cantADevolver;
-                        promesasDB.push(supabase.from('productos').update({ cantidad: nuevaCantLibre }).eq('id', stockLibreExistente.id));
-                    } else {
-                        promesasDB.push(supabase.from('productos').insert([{
-                            sku: asigItem.sku,
-                            categoria: asigItem.categoria,
-                            producto: asigItem.producto,
-                            cantidad: cantADevolver,
-                            observaciones: 'Devuelto',
-                            personal_asignado: '',
-                            activo: true,
-                            fecha_asignacion: new Date().toISOString()
-                        }]));
-                    }
-
-                    let pendiente = cantADevolver;
-                    const idsAProcesar = asigItem.ids && asigItem.ids.length > 0 ? asigItem.ids : [asigItem.id];
-                    const filasBase = productosActivos.filter(p => idsAProcesar.includes(p.id));
-
-                    for (const fila of filasBase) {
-                        if (pendiente <= 0) break;
-                        const cantFila = Number(fila.cantidad);
-
-                        if (cantFila <= pendiente) {
-                            promesasDB.push(supabase.from('productos').delete().eq('id', fila.id));
-                            pendiente -= cantFila;
-                        } else {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: cantFila - pendiente }).eq('id', fila.id));
-                            pendiente = 0;
-                        }
-                    }
-
-                    await Promise.all(promesasDB);
-
-                    setDevolviendoKey(null);
-                    setCantDevolver(1);
-                    await fetchData();
-                    mostrarToast(`Se devolvieron ${cantADevolver} unidades al stock libre.`);
-                } catch (err) {
-                    console.error(err);
-                    mostrarToast('Error al procesar la devolución', 'error');
-                }
-            };
-
-            const handleGuardarObservacionEditada = async (asigItem) => {
-                try {
-                    const idsAActualizar = asigItem.ids && asigItem.ids.length > 0 ? asigItem.ids : [asigItem.id];
-                    
-                    setProductos(prev => prev.map(p => idsAActualizar.includes(p.id) ? { ...p, observaciones: nuevaObsTexto.trim() } : p));
-
-                    const promesasDB = idsAActualizar.map(idReg => 
-                        supabase.from('productos').update({ observaciones: nuevaObsTexto.trim() }).eq('id', idReg)
-                    );
-
-                    await Promise.all(promesasDB);
-
-                    setEditandoObsKey(null);
-                    setNuevaObsTexto('');
-                    mostrarToast('Observación actualizada correctamente.');
-                } catch (err) {
-                    console.error(err);
-                    fetchData();
-                    mostrarToast('Error al actualizar observación.', 'error');
-                }
-            };
-
-            const handleDeletePersonal = async (persId, persNombre) => {
-                if (!window.confirm(`¿Eliminar a "${persNombre}"? Sus equipos volverán a stock libre.`)) return;
-                
-                try {
-                    const asignacionesDelPersonal = productosActivos.filter(p => p.personal_asignado === persNombre);
-                    const promesasDB = [];
-
-                    for (const item of asignacionesDelPersonal) {
-                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
-                        if (stockLibreExistente) {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + Number(item.cantidad) }).eq('id', stockLibreExistente.id));
-                        } else {
-                            promesasDB.push(supabase.from('productos').insert([{
-                                sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
-                            }]));
-                        }
-                        promesasDB.push(supabase.from('productos').delete().eq('id', item.id));
-                    }
-                    promesasDB.push(supabase.from('personal').delete().eq('id', persId));
-
-                    await Promise.all(promesasDB);
-                    await fetchData();
-                    mostrarToast('Personal eliminado.');
-                } catch (err) {
-                    console.error(err);
-                    mostrarToast('Error al eliminar personal.', 'error');
-                }
-            };
 
             const esAdminPrincipal = usuarioSesion && usuarioSesion.rol === 'ADMIN_PRINCIPAL';
 
@@ -1360,7 +663,7 @@
                             <div className="text-center space-y-2">
                                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-3xl mx-auto shadow-xl shadow-indigo-500/30 border border-white/20 hover:scale-105 transition-transform">🏢</div>
                                 <h1 className="text-2xl font-extrabold text-white tracking-tight">Cordero y Asociados</h1>
-                                <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO EN LINEA</p>
+                                <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO SEGURO</p>
                             </div>
 
                             <form onSubmit={handleLogin} className="space-y-4">
@@ -1413,7 +716,6 @@
                     )}
 
                     <div className="max-w-7xl mx-auto space-y-6">
-                        {/* Cabecera Principal */}
                         <header className="glass-panel border-indigo-500/20 shadow-2xl shadow-indigo-950/30 p-6 md:p-8 rounded-3xl border backdrop-blur-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 transition-all relative overflow-hidden">
                             <div className="flex items-center gap-5 relative z-10">
                                 <Tooltip text="Empresa Cordero y Asociados" position="right">
@@ -1422,13 +724,13 @@
                                 <div>
                                     <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">Cordero y Asociados</h1>
                                     <p className="text-[11px] text-indigo-400 font-extrabold uppercase tracking-widest mt-0.5 flex items-center gap-2">
-                                        <Tooltip text="Sistema conectado en tiempo real con Supabase" position="bottom">
+                                        <Tooltip text="Sistema protegido contra SQL Injection y XSS" position="bottom">
                                             <span className="relative flex h-2.5 w-2.5 cursor-pointer">
                                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                                             </span>
                                         </Tooltip>
-                                        CONTROL DE INVENTARIO EN LINEA
+                                        CONTROL DE INVENTARIO PROTEGIDO
                                     </p>
                                 </div>
                             </div>
@@ -1445,11 +747,6 @@
                                         </div>
                                     </div>
                                 </Tooltip>
-                                <Tooltip text={mostrarHistorial ? "Ocultar Bitácora de Asignaciones" : "Ver Bitácora de Asignaciones completa"} position="bottom">
-                                    <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-4 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 btn-haptic border border-indigo-400/30">
-                                        📜 <span>{mostrarHistorial ? 'Ocultar' : 'Bitácora'}</span>
-                                    </button>
-                                </Tooltip>
                                 <Tooltip text="Cerrar la sesión actual" position="bottom">
                                     <button onClick={handleLogout} className="p-3.5 rounded-2xl font-black text-xs bg-rose-600/15 text-rose-300 border border-rose-500/30 hover:bg-rose-600 hover:text-white cursor-pointer btn-haptic">
                                         🚪 Salir
@@ -1458,961 +755,21 @@
                             </div>
                         </header>
 
-                        {/* Tarjetas de Métricas con Tooltips */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                            <Tooltip text="Haz clic para ver el resumen detallado del stock total" position="top">
-                                <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('total'); }} className="bg-slate-900/60 border-slate-800/80 p-6 rounded-3xl border backdrop-blur-xl shadow-xl cursor-pointer glow-neon-indigo flex items-center justify-between group">
-                                    <div className="space-y-2">
-                                        <span className="block text-[11px] font-black uppercase tracking-widest text-slate-400">Estado del Stock</span>
-                                        <div className="flex items-baseline gap-2">
-                                            <span className="text-4xl font-black text-indigo-400 group-hover:scale-105 transition-transform">{totalProductosSKUs}</span>
-                                            <span className="text-xs font-bold text-indigo-300 uppercase tracking-wide">Prod.</span>
-                                            <span className="text-slate-600 font-bold mx-1">•</span>
-                                            <span className="text-2xl font-black text-slate-200">{totalUnidades}</span>
-                                            <span className="text-xs font-bold text-slate-400">Unid.</span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5 text-[10px] font-black pt-1">
-                                            <Tooltip text="Unidades en almacén sin asignar" position="top">
-                                                <span className="text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">🟢 {unidadesSinAsignar} Libres</span>
-                                            </Tooltip>
-                                            <Tooltip text="Unidades asignadas actualmente a personal" position="top">
-                                                <span className="text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-xl border border-amber-500/20">🏷️ {unidadesEnUso} Uso</span>
-                                            </Tooltip>
-                                            <Tooltip text="Unidades deshabilitadas fuera de asignación" position="top">
-                                                <span className="text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-xl border border-rose-500/20">🚫 {unidadesDeshabilitadas} Deshab.</span>
-                                            </Tooltip>
-                                        </div>
-                                    </div>
-                                    <div className="p-4 rounded-2xl bg-indigo-950/80 border border-indigo-800/50 text-indigo-400 text-2xl shadow-inner group-hover:border-indigo-500/50 transition-colors">📦</div>
-                                </div>
-                            </Tooltip>
-
-                            <Tooltip text="Haz clic para administrar la lista de personal registrado" position="top">
-                                <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('personal'); }} className="bg-slate-900/60 border-slate-800/80 p-6 rounded-3xl border backdrop-blur-xl shadow-xl cursor-pointer glow-neon-amber flex items-center justify-between group">
-                                    <div>
-                                        <span className="block text-[11px] font-black uppercase tracking-widest mb-1 text-slate-400">Total Personal</span>
-                                        <span className="text-4xl font-black text-amber-400 group-hover:scale-105 transition-transform">{personalList.length}</span>
-                                    </div>
-                                    <div className="p-4 rounded-2xl bg-amber-950/80 border border-amber-800/50 text-amber-400 text-2xl shadow-inner group-hover:border-amber-500/50 transition-colors">👥</div>
-                                </div>
-                            </Tooltip>
-
-                            <Tooltip text="Haz clic para ver las asignaciones agrupadas por colaborador" position="top">
-                                <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('asignaciones'); }} className="bg-slate-900/60 border-slate-800/80 p-6 rounded-3xl border backdrop-blur-xl shadow-xl cursor-pointer glow-neon-emerald flex items-center justify-between group">
-                                    <div>
-                                        <span className="block text-[11px] font-black uppercase tracking-widest mb-1 text-slate-400">Asignaciones</span>
-                                        <span className="text-4xl font-black text-emerald-400 group-hover:scale-105 transition-transform">{listaHistorialAsignaciones.length}</span>
-                                    </div>
-                                    <div className="p-4 rounded-2xl bg-emerald-950/80 border border-emerald-800/50 text-emerald-400 text-2xl shadow-inner group-hover:border-emerald-500/50 transition-colors">🏷️</div>
-                                </div>
-                            </Tooltip>
-                        </div>
-
-                        {/* NAVEGACIÓN PESTAÑAS */}
-                        <div className="flex gap-3 bg-slate-900/80 border-slate-800/80 p-2 rounded-3xl border backdrop-blur-xl shadow-xl overflow-x-auto">
-                            {tienePermiso('asignar') && (
-                                <Tooltip text="Modulo para entregar/asignar productos a uno o varios colaboradores" position="bottom">
-                                    <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap btn-haptic ${tabActiva === 'asignar' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🔗 Asignar Productos</button>
-                                </Tooltip>
-                            )}
-                            {tienePermiso('productos') && (
-                                <Tooltip text="Modulo para registrar stock, reabastecer e importar/exportar CSV" position="bottom">
-                                    <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap btn-haptic ${tabActiva === 'productos' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>📦 Catálogo e Importación CSV</button>
-                                </Tooltip>
-                            )}
-                            {tienePermiso('deshabilitados') && (
-                                <Tooltip text="Modulo para revisar o reactivar productos fuera de asignación" position="bottom">
-                                    <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap btn-haptic ${tabActiva === 'deshabilitados' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
-                                </Tooltip>
-                            )}
-                            {tienePermiso('personal') && (
-                                <Tooltip text="Modulo para registrar nuevo personal y gestionar cargos" position="bottom">
-                                    <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap btn-haptic ${tabActiva === 'personal' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👥 Agregar Personal</button>
-                                </Tooltip>
-                            )}
-                            {esAdminPrincipal && (
-                                <Tooltip text="Panel exclusivo de administración de usuarios y permisos" position="bottom">
-                                    <button onClick={() => setTabActiva('usuarios')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap btn-haptic ${tabActiva === 'usuarios' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👑 Gestión de Usuarios y Permisos</button>
-                                </Tooltip>
-                            )}
-                        </div>
-
-                        {/* PESTAÑA: USUARIOS */}
-                        {tabActiva === 'usuarios' && esAdminPrincipal && (
-                            <section className="animate-tab bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
+                        {/* PESTAÑA: PRODUCTOS */}
+                        <div className="bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
+                            <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">📦</span> Registrar Producto Protegido</h2>
+                            <form onSubmit={handleSaveProducto} className="space-y-4">
                                 <div>
-                                    <h2 className="text-xl font-black flex items-center gap-3">
-                                        <span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">👑</span> Control Granular de Usuarios y Permisos
-                                    </h2>
-                                    <p className="text-xs text-slate-400 mt-1">Como Administrador Principal, puedes crear usuarios, modificar contraseñas y definir qué campos y herramientas exactas puede utilizar cada usuario.</p>
+                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Producto</label>
+                                    <input type="text" placeholder="Ej. Laptop HP" value={formProducto.producto} onChange={e => setFormProducto({...formProducto, producto: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required />
                                 </div>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                    <div className="space-y-4">
-                                        {!usuarioEditando ? (
-                                            <form onSubmit={handleCrearUsuario} className="bg-slate-950/80 p-6 rounded-2xl border border-slate-800/80 space-y-4 shadow-inner">
-                                                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-wider">➕ Crear Nuevo Usuario</h3>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nombre Completo</label>
-                                                    <input type="text" placeholder="Ej. Juan Pérez" value={formNuevoUsuario.nombre} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, nombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Usuario / Login</label>
-                                                    <input type="text" placeholder="Ej. jperez" value={formNuevoUsuario.username} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, username: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Contraseña</label>
-                                                    <input type="password" placeholder="••••••••" value={formNuevoUsuario.password} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, password: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Rol</label>
-                                                    <select value={formNuevoUsuario.rol} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, rol: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors">
-                                                        <option value="OPERADOR">OPERADOR (Acceso Según Permisos)</option>
-                                                        <option value="ADMIN">ADMINISTRADOR (Acceso Restringido Sin Panel Usuarios)</option>
-                                                    </select>
-                                                </div>
-
-                                                <div className="space-y-2 pt-2 border-t border-slate-800">
-                                                    <label className="block text-[11px] font-black uppercase text-indigo-300">Campos / Permisos Permitidos:</label>
-                                                    {[
-                                                        { key: 'asignar', label: '🔗 Asignar Productos', tip: 'Permite entregar/asignar productos' },
-                                                        { key: 'productos', label: '📦 Catálogo y CSV', tip: 'Permite registrar productos, stock e importar/exportar CSV' },
-                                                        { key: 'deshabilitados', label: '🚫 Ver Deshabilitados', tip: 'Permite gestionar productos fuera de circulación' },
-                                                        { key: 'personal', label: '👥 Gestión de Personal', tip: 'Permite registrar y eliminar personal' }
-                                                    ].map(p => (
-                                                        <Tooltip key={p.key} text={p.tip} position="right">
-                                                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer bg-slate-900/80 p-2 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors">
-                                                                <input 
-                                                                    type="checkbox" 
-                                                                    checked={!!formNuevoUsuario.permisos[p.key]} 
-                                                                    onChange={e => setFormNuevoUsuario({
-                                                                        ...formNuevoUsuario,
-                                                                        permisos: { ...formNuevoUsuario.permisos, [p.key]: e.target.checked }
-                                                                    })}
-                                                                    className="accent-indigo-600 rounded cursor-pointer"
-                                                                />
-                                                                <span>{p.label}</span>
-                                                            </label>
-                                                        </Tooltip>
-                                                    ))}
-                                                </div>
-
-                                                <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-black py-3 rounded-xl text-xs shadow-lg shadow-indigo-600/30 cursor-pointer btn-haptic border border-indigo-400/20">
-                                                    + Registrar Usuario
-                                                </button>
-                                            </form>
-                                        ) : (
-                                            <form onSubmit={handleGuardarCambiosUsuario} className="bg-indigo-950/30 p-6 rounded-2xl border border-indigo-500/50 space-y-4 shadow-xl">
-                                                <div className="flex justify-between items-center">
-                                                    <h3 className="text-sm font-black text-indigo-300 uppercase tracking-wider">✏️ Editar Usuario y Permisos</h3>
-                                                    <button type="button" onClick={() => setUsuarioEditando(null)} className="text-xs font-bold text-slate-400 hover:text-white">✕ Cancelar</button>
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nombre Completo</label>
-                                                    <input type="text" value={formEditarUsuario.nombre} onChange={e => setFormEditarUsuario({...formEditarUsuario, nombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Usuario / Login</label>
-                                                    <input type="text" value={formEditarUsuario.username} onChange={e => setFormEditarUsuario({...formEditarUsuario, username: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nueva Contraseña</label>
-                                                    <input type="text" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-indigo-500 transition-colors" required />
-                                                </div>
-
-                                                <div className="space-y-2 pt-2 border-t border-slate-800">
-                                                    <label className="block text-[11px] font-black uppercase text-indigo-300">Actualizar Permisos de Secciones:</label>
-                                                    {[
-                                                        { key: 'asignar', label: '🔗 Asignar Productos' },
-                                                        { key: 'productos', label: '📦 Catálogo y CSV' },
-                                                        { key: 'deshabilitados', label: '🚫 Ver Deshabilitados' },
-                                                        { key: 'personal', label: '👥 Gestión de Personal' }
-                                                    ].map(p => (
-                                                        <label key={p.key} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer bg-slate-900/80 p-2 rounded-xl border border-slate-800 hover:border-slate-700 transition-colors">
-                                                            <input 
-                                                                type="checkbox" 
-                                                                checked={!!formEditarUsuario.permisos[p.key]} 
-                                                                onChange={e => setFormEditarUsuario({
-                                                                    ...formEditarUsuario,
-                                                                    permisos: { ...formEditarUsuario.permisos, [p.key]: e.target.checked }
-                                                                })}
-                                                                className="accent-indigo-600 rounded cursor-pointer"
-                                                            />
-                                                            <span>{p.label}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
-
-                                                <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-3 rounded-xl text-xs shadow-lg shadow-emerald-600/30 cursor-pointer btn-haptic border border-emerald-400/20">
-                                                    💾 Guardar Cambios
-                                                </button>
-                                            </form>
-                                        )}
-                                    </div>
-
-                                    <div className="lg:col-span-2 space-y-3">
-                                        <h3 className="text-sm font-black text-slate-300 uppercase tracking-wider">Usuarios y Control de Permisos ({usuariosList.length})</h3>
-                                        <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
-                                            {usuariosList.map(u => (
-                                                <div key={u.id} className="bg-slate-950/80 border border-slate-800/80 p-4.5 rounded-2xl flex flex-col justify-between gap-4 transition-all hover:border-slate-700">
-                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-3">
-                                                            <Avatar nombre={u.nombre} />
-                                                            <div>
-                                                                <span className="font-extrabold text-white text-sm">{u.nombre}</span>
-                                                                <span className="text-xs text-indigo-400 font-mono ml-2">(@{u.username})</span>
-                                                                <span className={`ml-2 px-2.5 py-0.5 rounded-lg text-[10px] font-black border ${u.rol === 'ADMIN_PRINCIPAL' ? 'bg-amber-950/60 text-amber-300 border-amber-800/80' : 'bg-slate-800/80 text-slate-300 border-slate-700'}`}>{u.rol}</span>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-2">
-                                                            <Tooltip text="Editar datos, contraseña o rol de este usuario" position="left">
-                                                                <button onClick={() => handleIniciarEdicionUsuario(u)} className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black cursor-pointer transition-all">
-                                                                    ✏️ Editar
-                                                                </button>
-                                                            </Tooltip>
-                                                            {u.rol !== 'ADMIN_PRINCIPAL' && (
-                                                                <Tooltip text="Eliminar usuario permanentemente" position="left">
-                                                                    <button onClick={() => handleEliminarUsuario(u.id, u.nombre)} className="px-3 py-1.5 bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white rounded-xl text-xs font-black cursor-pointer transition-all">
-                                                                        🗑️
-                                                                    </button>
-                                                                </Tooltip>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                    {u.rol !== 'ADMIN_PRINCIPAL' && (
-                                                        <div className="pt-3 border-t border-slate-900 grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                                            {[
-                                                                { key: 'asignar', label: '🔗 Asignar' },
-                                                                { key: 'productos', label: '📦 Catálogo' },
-                                                                { key: 'deshabilitados', label: '🚫 Deshab.' },
-                                                                { key: 'personal', label: '👥 Personal' }
-                                                            ].map(p => {
-                                                                const activo = !!u.permisos?.[p.key];
-                                                                return (
-                                                                    <Tooltip key={p.key} text={`Haz clic para ${activo ? 'revocar' : 'conceder'} este permiso`} position="top">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleTogglePermisoDirecto(u, p.key)}
-                                                                            className={`w-full px-2.5 py-1.5 rounded-xl text-[11px] font-black border flex items-center justify-between cursor-pointer transition-all ${activo ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300 shadow-sm shadow-indigo-950/50' : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:border-slate-700'}`}
-                                                                        >
-                                                                            <span>{p.label}</span>
-                                                                            <span>{activo ? '✅' : '❌'}</span>
-                                                                        </button>
-                                                                    </Tooltip>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </section>
-                        )}
-
-                        {/* PESTAÑA: ASIGNAR PRODUCTOS */}
-                        {tabActiva === 'asignar' && tienePermiso('asignar') && (
-                            <section className="animate-tab bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
-                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 border-b border-slate-800/60 pb-4">
-                                    <div>
-                                        <h2 className="text-xl font-black flex items-center gap-3">
-                                            <span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">🔗</span> Asignación de Productos
-                                        </h2>
-                                        <p className="text-xs text-slate-400 mt-1 font-medium">Selecciona uno o varios productos activos y colaboradores para asignar en una sola operación.</p>
-                                    </div>
-                                </div>
-
-                                <form onSubmit={handleConfirmarAsignacionMultiple} className="space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="space-y-3">
-                                            <label className="block text-[11px] font-black uppercase text-indigo-400 tracking-wider">
-                                                1. Seleccionar Productos ({Object.keys(prodSeleccionadosMap).length} marcados)
-                                            </label>
-                                            <div className="max-h-64 overflow-y-auto p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 space-y-2.5 shadow-inner">
-                                                {productosLibresList.length === 0 ? (
-                                                    <p className="text-xs text-slate-500 font-bold p-4 text-center">No hay stock libre disponible.</p>
-                                                ) : (
-                                                    productosLibresList.map(p => {
-                                                        const isChecked = !!prodSeleccionadosMap[p.id];
-                                                        return (
-                                                            <Tooltip key={p.id} text={`SKU: ${p.sku} | Disponibles en almacén: ${p.cantidad} unidades`} position="top">
-                                                                <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 transition-all ${isChecked ? 'bg-indigo-950/50 border-indigo-500/60 shadow-md shadow-indigo-950/30' : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'}`}>
-                                                                    <div className="flex items-center gap-3">
-                                                                        <input 
-                                                                            type="checkbox" 
-                                                                            checked={isChecked} 
-                                                                            onChange={() => toggleProductoSeleccionado(p.id)} 
-                                                                            className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
-                                                                        />
-                                                                        <div>
-                                                                            <div className="text-xs font-extrabold text-white">
-                                                                                <span className="font-mono text-indigo-300 bg-indigo-950/90 px-2 py-0.5 rounded border border-indigo-800/80 mr-2">{p.sku}</span>
-                                                                                {p.producto}
-                                                                            </div>
-                                                                            <div className="text-[11px] text-slate-400 font-bold mt-1">Libres: {p.cantidad} unidades</div>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {isChecked && (
-                                                                        <div className="flex items-center gap-1.5">
-                                                                            <span className="text-[10px] text-slate-400 font-bold">Cant/p:</span>
-                                                                            <Tooltip text="Cantidad de este producto a entregar a CADA colaborador" position="left">
-                                                                                <input 
-                                                                                    type="number" 
-                                                                                    min="1" 
-                                                                                    max={p.cantidad} 
-                                                                                    value={prodSeleccionadosMap[p.id]} 
-                                                                                    onChange={e => updateCantProductoSeleccionado(p.id, e.target.value)} 
-                                                                                    className="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center focus:border-indigo-500 outline-none shadow-inner" 
-                                                                                />
-                                                                            </Tooltip>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </Tooltip>
-                                                        );
-                                                    })
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3">
-                                            <label className="block text-[11px] font-black uppercase text-purple-400 tracking-wider">
-                                                2. Seleccionar Colaboradores ({personalSeleccionados.length} marcados)
-                                            </label>
-                                            <div className="max-h-64 overflow-y-auto p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 space-y-2.5 shadow-inner">
-                                                {personalList.length === 0 ? (
-                                                    <p className="text-xs text-slate-500 font-bold p-4 text-center">No hay colaboradores registrados.</p>
-                                                ) : (
-                                                    personalList.map(pers => {
-                                                        const isChecked = personalSeleccionados.includes(pers.nombre);
-                                                        return (
-                                                            <Tooltip key={pers.id} text={`Cargo: ${pers.cargo || 'Sin cargo asignado'}`} position="top">
-                                                                <div onClick={() => togglePersonalSeleccionado(pers.nombre)} className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${isChecked ? 'bg-purple-950/50 border-purple-500/60 shadow-md shadow-purple-950/30' : 'bg-slate-900/60 border-slate-800/80 hover:border-slate-700'}`}>
-                                                                    <div className="flex items-center gap-3">
-                                                                        <input 
-                                                                            type="checkbox" 
-                                                                            checked={isChecked} 
-                                                                            onChange={() => {}} 
-                                                                            className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
-                                                                        />
-                                                                        <Avatar nombre={pers.nombre} />
-                                                                        <span className="text-xs font-extrabold text-white">{pers.nombre}</span>
-                                                                    </div>
-                                                                    <span className="text-[11px] font-bold text-slate-400">{pers.cargo || 'Sin cargo'}</span>
-                                                                </div>
-                                                            </Tooltip>
-                                                        );
-                                                    })
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4 pt-2 border-t border-slate-800/80">
-                                        <div>
-                                            <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Observaciones Generales (Opcional)</label>
-                                            <input type="text" placeholder="Ej. Entrega para sede principal" value={obsAsignacion} onChange={e => setObsAsignacion(e.target.value)} className="w-full bg-slate-800/80 border border-slate-700/80 text-white rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none focus:border-indigo-500 transition-all" />
-                                        </div>
-
-                                        <Tooltip text="Ejecutar y guardar la asignación masiva en Supabase" position="top">
-                                            <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 via-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/30 cursor-pointer text-sm btn-haptic border border-indigo-400/30">
-                                                🚀 Confirmar Asignación ({Object.keys(prodSeleccionadosMap).length} Productos ➔ {personalSeleccionados.length} Personales)
-                                            </button>
-                                        </Tooltip>
-                                    </div>
-                                </form>
-                            </section>
-                        )}
-
-                        {/* PESTAÑA: PRODUCTOS / CSV */}
-                        {tabActiva === 'productos' && tienePermiso('productos') && (
-                            <div className="space-y-6 animate-tab">
-                                <section className="bg-gradient-to-r from-indigo-950/50 via-slate-900/90 to-purple-950/50 border-indigo-500/30 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-4 shadow-2xl">
-                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                                        <div>
-                                            <h2 className="text-xl font-black flex items-center gap-3">
-                                                <span className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shadow-sm">📊</span> Catálogo y Gestión Masiva CSV (Stock Almacén)
-                                            </h2>
-                                            <p className="text-xs text-slate-400 mt-1 font-medium">Exporta o actualiza el stock físico completo almacenado de cada producto.</p>
-                                        </div>
-                                        <Tooltip text="Descarga el catálogo completo en formato CSV para Excel" position="left">
-                                            <button onClick={descargarInventarioCSV} className="px-5 py-3 rounded-2xl font-black text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 btn-haptic border border-indigo-400/20">
-                                                <span>📥</span> Exportar Catálogo CSV
-                                            </button>
-                                        </Tooltip>
-                                    </div>
-                                    <div className="p-6 rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 flex flex-col sm:flex-row items-center justify-between gap-4">
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-2xl">📂</span>
-                                            <div>
-                                                <p className="text-xs font-black text-slate-200">Selecciona tu archivo CSV para actualizar/crear productos base</p>
-                                                <p className="text-[11px] font-mono mt-0.5 text-slate-400">Columnas: SKU; Categoria; Producto; Cantidad_Total_Stock; Observaciones; Estado</p>
-                                            </div>
-                                        </div>
-                                        <Tooltip text="Sube un archivo CSV estructurado para sincronizar tu stock masivamente" position="left">
-                                            <input type="file" accept=".csv" onChange={handleImportarCSV} className="text-xs font-semibold text-slate-400 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:cursor-pointer transition file:bg-indigo-600 file:text-white hover:file:bg-indigo-500" />
-                                        </Tooltip>
-                                    </div>
-                                </section>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                    <section className="bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl flex flex-col justify-between">
-                                        <div className="space-y-6">
-                                            <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">📦</span> Registrar Producto</h2>
-                                            <form onSubmit={handleSaveProducto} id="form-nuevo-prod" className="space-y-4">
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">SKU Autogenerado</label>
-                                                    <Tooltip text="SKU único correlativo generado automáticamente" position="top">
-                                                        <input type="text" value={generarSKU()} disabled className="w-full border rounded-2xl px-4 py-3.5 text-sm font-mono font-black bg-slate-800/90 border-slate-700 text-indigo-400 shadow-inner cursor-not-allowed" />
-                                                    </Tooltip>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Categoría</label>
-                                                    {!creandoCategoria ? (
-                                                        <div className="flex gap-2">
-                                                            <select value={formProducto.categoria} onChange={e => setFormProducto({...formProducto, categoria: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required>
-                                                                <option value="">-- Categ. --</option>
-                                                                {categoriasList.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-                                                            </select>
-                                                            <Tooltip text="Crear o eliminar categorías de productos" position="top">
-                                                                <button type="button" onClick={() => setCreandoCategoria(true)} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black whitespace-nowrap cursor-pointer btn-haptic border border-indigo-400/20 shadow-md">Gestionar</button>
-                                                            </Tooltip>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 shadow-inner">
-                                                            <div className="flex gap-2">
-                                                                <input type="text" placeholder="Categoría..." value={nuevaCatNombre} onChange={e => setNuevaCatNombre(e.target.value)} className="w-full bg-slate-800 border-slate-700 rounded-xl p-2.5 text-xs text-white" />
-                                                                <button type="button" onClick={handleGuardarNuevaCategoria} className="px-3 bg-emerald-600 text-white rounded-xl text-xs font-black cursor-pointer">OK</button>
-                                                                <button type="button" onClick={() => setCreandoCategoria(false)} className="px-3 bg-slate-700 text-slate-300 rounded-xl text-xs font-black cursor-pointer">✕</button>
-                                                            </div>
-                                                            <div className="pt-2 border-t border-slate-800">
-                                                                <span className="text-[10px] font-bold text-slate-400 block mb-1.5">Eliminar Existentes:</span>
-                                                                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                                                                    {categoriasList.map(c => (
-                                                                        <span key={c.id} className="inline-flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-300 border border-slate-700">
-                                                                            {c.nombre}
-                                                                            <button type="button" onClick={() => handleEliminarCategoria(c.id, c.nombre)} className="text-rose-400 hover:text-rose-300 font-bold cursor-pointer">✕</button>
-                                                                        </span>
-                                                                    ))}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Producto</label>
-                                                    <input type="text" placeholder="Ej. Laptop HP" value={formProducto.producto} onChange={e => setFormProducto({...formProducto, producto: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required />
-                                                </div>
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Cantidad Inicial Libre</label>
-                                                    <input type="number" min="1" placeholder="Ej. 5" value={formProducto.cantidad} onChange={e => setFormProducto({...formProducto, cantidad: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required />
-                                                </div>
-                                            </form>
-                                        </div>
-                                        <Tooltip text="Guardar este nuevo producto en el catálogo base" position="top">
-                                            <button type="submit" form="form-nuevo-prod" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer mt-4 btn-haptic border border-indigo-400/20">Guardar Producto</button>
-                                        </Tooltip>
-                                    </section>
-
-                                    <section className="bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl flex flex-col justify-between">
-                                        <div className="space-y-6">
-                                            <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm">➕</span> Reabastecer Stock</h2>
-                                            <form onSubmit={handleRestockProducto} id="form-restock" className="space-y-4">
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Seleccionar Producto</label>
-                                                    <select value={formRestock.sku} onChange={e => setFormRestock({...formRestock, sku: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required>
-                                                        <option value="">-- Elige producto --</option>
-                                                        {productosUnicosGlobalList.map(item => <option key={item.sku} value={item.sku}>{item.sku} - {item.producto}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {productoSeleccionadoRestock && (
-                                                    <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex justify-between items-center text-xs font-black shadow-inner">
-                                                        <span className="text-emerald-400">📦 Stock Almacén Actual:</span>
-                                                        <span className="bg-emerald-600 text-white px-3 py-1 rounded-xl shadow-md">{productoSeleccionadoRestock.cantidadTotal} unidades</span>
-                                                    </div>
-                                                )}
-
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Unidades a Sumar</label>
-                                                    <input type="number" min="1" placeholder="Ej. 10" value={formRestock.cantidadExtra} onChange={e => setFormRestock({...formRestock, cantidadExtra: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required />
-                                                </div>
-                                            </form>
-                                        </div>
-                                        <Tooltip text="Añadir más unidades al stock existente de este producto" position="top">
-                                            <button type="submit" form="form-restock" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-emerald-600/30 cursor-pointer mt-4 btn-haptic border border-emerald-400/20">Sumar Stock</button>
-                                        </Tooltip>
-                                    </section>
-
-                                    <section className="bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl flex flex-col justify-between">
-                                        <div className="space-y-6">
-                                            <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shadow-sm">🚫</span> Deshabilitar Producto</h2>
-                                            <p className="text-xs text-slate-400 leading-relaxed font-medium">Al deshabilitar un producto, no aparecerá en las opciones para asignar a personal, pero seguirá contado dentro de tu total de inventario.</p>
-                                            
-                                            <form onSubmit={handleDeshabilitarProducto} id="form-deshabilitar" className="space-y-4">
-                                                <div>
-                                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Seleccionar Producto a Deshabilitar</label>
-                                                    <select value={skuADeshabilitar} onChange={e => setSkuADeshabilitar(e.target.value)} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required>
-                                                        <option value="">-- Elige producto --</option>
-                                                        {productosUnicosGlobalList.filter(p => p.cantidadDeshabilitada === 0).map(item => <option key={item.sku} value={item.sku}>{item.sku} - {item.producto}</option>)}
-                                                    </select>
-                                                </div>
-
-                                                {productoSeleccionadoDeshabilitar && (
-                                                    <div className="p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex justify-between items-center text-xs font-black shadow-inner">
-                                                        <span className="text-rose-400">📦 Total de Stock a Deshabilitar:</span>
-                                                        <span className="bg-rose-600 text-white px-3 py-1 rounded-xl shadow-md">{productoSeleccionadoDeshabilitar.cantidadTotal} unidades</span>
-                                                    </div>
-                                                )}
-                                            </form>
-                                        </div>
-                                        <Tooltip text="Ocultar producto de la lista de asignación sin borrar su registro" position="top">
-                                            <button type="submit" form="form-deshabilitar" className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-rose-600/30 cursor-pointer mt-4 btn-haptic border border-rose-400/20">Deshabilitar Producto</button>
-                                        </Tooltip>
-                                    </section>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* PESTAÑA: DESHABILITADOS */}
-                        {tabActiva === 'deshabilitados' && tienePermiso('deshabilitados') && (
-                            <section className="animate-tab bg-slate-900/60 border-slate-800/80 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
                                 <div>
-                                    <h2 className="text-xl font-black">🚫 Productos Deshabilitados</h2>
-                                    <p className="text-xs text-slate-400 font-medium">Estos productos se contabilizan en tus Métricas Totales de inventario, pero están ocultos del módulo de asignación.</p>
+                                    <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Cantidad Inicial Libre</label>
+                                    <input type="number" min="1" placeholder="Ej. 5" value={formProducto.cantidad} onChange={e => setFormProducto({...formProducto, cantidad: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white" required />
                                 </div>
-                                <div className="space-y-3">
-                                    {productosDeshabilitados.length === 0 ? (
-                                        <p className="text-sm font-bold text-slate-500 py-6 text-center">No hay productos deshabilitados actualmente.</p>
-                                    ) : (
-                                        productosDeshabilitados.map(item => (
-                                            <div key={item.sku} className="bg-slate-950/80 border border-slate-800/80 p-4.5 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm transition-all hover:border-slate-700">
-                                                <div>
-                                                    <div className="font-black text-indigo-400 font-mono text-sm">{item.sku} - {item.producto}</div>
-                                                    <div className="text-xs text-slate-400 mt-1 font-medium">Categoría: <strong>{item.categoria}</strong> • Stock contabilizado: <strong>{item.cantidadTotal} unidades</strong></div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Tooltip text="Volver a poner disponible este producto para asignaciones" position="top">
-                                                        <button onClick={() => handleReactivarProducto(item.sku)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black cursor-pointer shadow-md btn-haptic">
-                                                            🔄 Reactivar
-                                                        </button>
-                                                    </Tooltip>
-                                                    <Tooltip text="Borrar este producto de la base de datos permanentemente" position="top">
-                                                        <button onClick={() => handleEliminarDefinitivo(item.sku)} className="px-4 py-2 bg-rose-600/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-black cursor-pointer hover:bg-rose-600 hover:text-white shadow-md btn-haptic">
-                                                            🗑️ Eliminar Definitivamente
-                                                        </button>
-                                                    </Tooltip>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </section>
-                        )}
-
-                        {/* PESTAÑA: PERSONAL */}
-                        {tabActiva === 'personal' && tienePermiso('personal') && (
-                            <section className="animate-tab bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
-                                <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">👥</span> Agregar Nuevo Personal</h2>
-                                <form onSubmit={handleSavePersonal} className="space-y-4">
-                                    <div>
-                                        <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Nombre Completo</label>
-                                        <input type="text" placeholder="Ej. Leandro Zamora" value={formPersonal.nombre} onChange={e => setFormPersonal({...formPersonal, nombre: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white focus:border-indigo-500 transition-colors" required />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-black uppercase mb-1.5 text-slate-400">Cargo</label>
-                                        {!creandoCargo ? (
-                                            <div className="flex gap-2">
-                                                <select value={formPersonal.cargo} onChange={e => setFormPersonal({...formPersonal, cargo: e.target.value})} className="w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none bg-slate-800/80 border-slate-700 text-white focus:border-indigo-500 transition-colors" required>
-                                                    <option value="">-- Seleccionar Cargo --</option>
-                                                    {cargosList.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
-                                                </select>
-                                                <Tooltip text="Crear o eliminar cargos laborales" position="top">
-                                                    <button type="button" onClick={() => setCreandoCargo(true)} className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black whitespace-nowrap cursor-pointer btn-haptic border border-indigo-400/20 shadow-md">Gestionar Cargos</button>
-                                                </Tooltip>
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 shadow-inner">
-                                                <div className="flex gap-2">
-                                                    <input type="text" placeholder="Escribe nuevo cargo..." value={nuevoCargoNombre} onChange={e => setNuevoCargoNombre(e.target.value)} className="w-full bg-slate-800 border-slate-700 rounded-xl p-3 text-sm text-white" />
-                                                    <button type="button" onClick={handleGuardarNuevoCargo} className="px-4 bg-emerald-600 text-white rounded-xl text-xs font-black cursor-pointer">Guardar</button>
-                                                    <button type="button" onClick={() => setCreandoCargo(false)} className="px-4 bg-slate-700 text-slate-300 rounded-xl text-xs font-black cursor-pointer">Cerrar</button>
-                                                </div>
-                                                <div className="pt-2 border-t border-slate-800">
-                                                    <span className="text-[11px] font-bold text-slate-400 block mb-2">Eliminar Cargos Existentes:</span>
-                                                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                                                        {cargosList.map(c => (
-                                                            <span key={c.id} className="inline-flex items-center gap-2 bg-slate-800 px-3 py-1 rounded-lg text-xs font-semibold text-slate-300 border border-slate-700">
-                                                                {c.nombre}
-                                                                <button type="button" onClick={() => handleEliminarCargo(c.id, c.nombre)} className="text-rose-400 hover:text-rose-300 font-bold cursor-pointer">✕</button>
-                                                            </span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <Tooltip text="Registrar este colaborador en la lista general" position="top">
-                                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer btn-haptic border border-indigo-400/20">Guardar Colaborador</button>
-                                    </Tooltip>
-                                </form>
-                            </section>
-                        )}
-
-                        {/* BITÁCORA */}
-                        {mostrarHistorial && (
-                            <section className="animate-tab bg-slate-900/60 border-slate-800/80 rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all">
-                                <div className="p-6 border-b border-slate-800/80 space-y-4">
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                        <div>
-                                            <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400 font-medium">Historial completo de eventos y registros de asignación</p>
-                                        </div>
-                                        <div className="w-full sm:w-auto">
-                                            <Tooltip text="Filtra la lista de movimientos en tiempo real por texto" position="left">
-                                                <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busquedaInput} onChange={e => setBusquedaInput(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700/80 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors shadow-inner" />
-                                            </Tooltip>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
-                                    <table className="w-full text-left border-collapse">
-                                        <thead>
-                                            <tr className="bg-slate-950/95 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
-                                                <th className="p-4">Fecha / Hora</th>
-                                                <th className="p-4">SKU</th>
-                                                <th className="p-4">Categoría</th>
-                                                <th className="p-4">Producto</th>
-                                                <th className="p-4">Cantidad</th>
-                                                <th className="p-4">Asignado A</th>
-                                                <th className="p-4 text-center">Acción / Detalle</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-800/60 text-sm">
-                                            {loading ? (
-                                                <React.Fragment>
-                                                    <SkeletonRow />
-                                                    <SkeletonRow />
-                                                    <SkeletonRow />
-                                                    <SkeletonRow />
-                                                </React.Fragment>
-                                            ) : historialFiltrado.length === 0 ? (
-                                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones para mostrar.</td></tr>
-                                            ) : (
-                                                historialFiltrado.map((grupo, index) => {
-                                                    const { fechaStr, horaStr } = formatearFechaClean(grupo);
-                                                    const estaExpandido = !!lotesExpandidosMap[grupo.loteKey];
-
-                                                    if (grupo.esLote) {
-                                                        return (
-                                                            <React.Fragment key={grupo.loteKey || index}>
-                                                                <tr className="bg-indigo-950/20 hover:bg-indigo-950/40 transition-colors border-l-4 border-l-indigo-500">
-                                                                    <td className="p-4 whitespace-nowrap">
-                                                                        <div className="flex flex-col gap-1">
-                                                                            <Tooltip text="Fecha exacta del movimiento" position="top">
-                                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-xs font-bold text-indigo-200 cursor-pointer">
-                                                                                    📅 {fechaStr}
-                                                                                </span>
-                                                                            </Tooltip>
-                                                                            <Tooltip text="Hora de registro" position="top">
-                                                                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900/80 text-[10px] font-mono font-semibold text-indigo-300 border border-slate-800/60 cursor-pointer">
-                                                                                    ⏰ {horaStr}
-                                                                                </span>
-                                                                            </Tooltip>
-                                                                        </div>
-                                                                    </td>
-                                                                    <td className="p-4 font-mono font-black text-purple-400">
-                                                                        <Tooltip text="Asignación masiva en lote" position="top">
-                                                                            <span className="bg-purple-950/80 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs shadow-sm cursor-pointer">🚀 ASIGNACIÓN</span>
-                                                                        </Tooltip>
-                                                                    </td>
-                                                                    <td className="p-4 text-slate-400 font-bold">Varias Categ.</td>
-                                                                    <td className="p-4 font-extrabold text-indigo-300">{grupo.prodsCount} Producto(s)</td>
-                                                                    <td className="p-4 font-black">
-                                                                        <Tooltip text="Suma total de unidades entregadas en este evento" position="top">
-                                                                            <span className="px-3 py-1 bg-purple-500/15 text-purple-300 border border-purple-500/30 rounded-xl text-xs cursor-pointer">{grupo.cantTotal} unid. totales</span>
-                                                                        </Tooltip>
-                                                                    </td>
-                                                                    <td className="p-4">
-                                                                        <Tooltip text="Número de colaboradores receptores" position="top">
-                                                                            <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold cursor-pointer">👥 {grupo.persCount} Colaborador(es)</span>
-                                                                        </Tooltip>
-                                                                    </td>
-                                                                    <td className="p-4 text-center">
-                                                                        <Tooltip text={estaExpandido ? "Ocultar la lista detallada del lote" : "Desplegar lista de productos y personal de este lote"} position="left">
-                                                                            <button onClick={() => toggleLoteExpandido(grupo.loteKey)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto btn-haptic border border-indigo-400/20">
-                                                                                <span>{estaExpandido ? '📂 Ocultar Detalle' : '👁️ Ver Detalle'}</span>
-                                                                            </button>
-                                                                        </Tooltip>
-                                                                    </td>
-                                                                </tr>
-
-                                                                {estaExpandido && (
-                                                                    <tr>
-                                                                        <td colSpan="7" className="p-4 bg-slate-950/90 border-b border-indigo-900/50">
-                                                                            <div className="p-5 rounded-2xl bg-slate-900/90 border border-indigo-500/30 space-y-4 shadow-inner">
-                                                                                <div className="flex justify-between items-center text-xs font-extrabold text-indigo-300 border-b border-slate-800 pb-2.5">
-                                                                                    <span>📋 Detalle Agrupado por Producto</span>
-                                                                                    <span className="text-slate-400 font-normal">Obs: {grupo.observaciones}</span>
-                                                                                </div>
-                                                                                <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
-                                                                                    {grupo.productosAgrupadosLote.map((prodAgrup, pIdx) => (
-                                                                                        <div key={pIdx} className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 flex flex-col md:flex-row justify-between md:items-center text-xs gap-3">
-                                                                                            <div className="flex items-center gap-3">
-                                                                                                <Tooltip text={`Código de producto: ${prodAgrup.sku}`} position="top">
-                                                                                                    <span className="font-mono font-black text-indigo-400 bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-800/80 cursor-pointer">{prodAgrup.sku}</span>
-                                                                                                </Tooltip>
-                                                                                                <div>
-                                                                                                    <div className="font-extrabold text-white text-sm">{prodAgrup.producto}</div>
-                                                                                                    <div className="text-slate-400 text-[11px] font-semibold">Categoría: {prodAgrup.categoria}</div>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            <div className="flex items-center gap-3 flex-wrap">
-                                                                                                <span className="bg-indigo-950/80 text-indigo-300 px-3 py-1 rounded-xl border border-indigo-800/80 font-black text-xs">{prodAgrup.cantidadTotal} unid. asignadas</span>
-                                                                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                                    <span className="text-[11px] text-slate-400 font-bold">A:</span>
-                                                                                                    {prodAgrup.colaboradores.map((colab, cIdx) => (
-                                                                                                        <div key={cIdx} className="inline-flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2.5 py-1 rounded-xl border border-amber-800/80 font-bold text-[11px]">
-                                                                                                            <Avatar nombre={colab} />
-                                                                                                            <span>{colab}</span>
-                                                                                                        </div>
-                                                                                                    ))}
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            </div>
-                                                                        </td>
-                                                                    </tr>
-                                                                )}
-                                                            </React.Fragment>
-                                                        );
-                                                    } else {
-                                                        return (
-                                                            <tr key={grupo.id || index} className="hover:bg-indigo-950/20 transition-colors even:bg-slate-900/30">
-                                                                <td className="p-4 whitespace-nowrap">
-                                                                    <div className="flex flex-col gap-1">
-                                                                        <Tooltip text="Fecha exacta del movimiento" position="top">
-                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-bold text-slate-200 cursor-pointer">
-                                                                                📅 {fechaStr}
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                        <Tooltip text="Hora de registro" position="top">
-                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-slate-400 cursor-pointer">
-                                                                                ⏰ {horaStr}
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="p-4 font-mono font-black text-indigo-400">
-                                                                    <Tooltip text={`SKU único: ${grupo.sku}`} position="top">
-                                                                        <span className="cursor-pointer">{grupo.sku}</span>
-                                                                    </Tooltip>
-                                                                </td>
-                                                                <td className="p-4 text-slate-400">{grupo.categoria}</td>
-                                                                <td className="p-4 font-bold text-white">{grupo.producto}</td>
-                                                                <td className="p-4 font-black">
-                                                                    <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs">{grupo.cantidad} unid.</span>
-                                                                </td>
-                                                                <td className="p-4">
-                                                                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
-                                                                        <Avatar nombre={grupo.personal_asignado} />
-                                                                        <span>{grupo.personal_asignado}</span>
-                                                                    </div>
-                                                                </td>
-                                                                <td className="p-4 text-xs text-slate-400 text-center font-bold">{grupo.observacionesLimpia}</td>
-                                                            </tr>
-                                                        );
-                                                    }
-                                                })
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </section>
-                        )}
-
-                        {/* MODAL GLOBAL */}
-                        {modalAbierto && (
-                            <div className="fixed inset-0 bg-[#05070E]/80 backdrop-blur-2xl flex items-center justify-center p-4 z-50">
-                                <div className="animate-modal-spring bg-[#0B0F19]/95 border-indigo-500/30 text-white rounded-3xl border max-w-2xl w-full p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl shadow-indigo-950/60">
-                                    <div className="flex justify-between items-center border-b border-slate-800/80 pb-5">
-                                        <h3 className="text-xl font-black">📋 Detalle del Inventario Global</h3>
-                                        <Tooltip text="Cerrar esta ventana modal" position="left">
-                                            <button onClick={() => { setModalAbierto(false); setSeccionSeleccionada(null); }} className="text-xs font-black px-4 py-2 bg-slate-800 text-slate-300 rounded-xl cursor-pointer hover:bg-slate-700 transition-all border border-slate-700/50 btn-haptic">✕ Cerrar</button>
-                                        </Tooltip>
-                                    </div>
-                                    {seccionSeleccionada && (
-                                        <div className="bg-slate-950/80 border border-slate-800/80 p-5 rounded-2xl space-y-4 shadow-inner">
-                                            <h4 className="font-black text-xs uppercase tracking-widest text-indigo-400">Filtrado por: {seccionSeleccionada.toUpperCase()}</h4>
-                                            <div className="max-h-80 overflow-y-auto space-y-4 pr-1">
-                                                {seccionSeleccionada === 'personal' ? (
-                                                    personalList.map(p => (
-                                                        <div key={p.id} className="bg-slate-900/80 border border-slate-800/80 p-3.5 rounded-2xl flex justify-between items-center text-sm font-semibold">
-                                                            <div className="flex items-center gap-2.5">
-                                                                <Avatar nombre={p.nombre} />
-                                                                <span><strong>{p.nombre}</strong> ({p.cargo || 'Sin cargo'})</span>
-                                                            </div>
-                                                            <Tooltip text="Eliminar colaborador y devolver sus equipos a stock libre" position="left">
-                                                                <button onClick={() => handleDeletePersonal(p.id, p.nombre)} className="text-xs text-rose-400 font-black hover:underline cursor-pointer">Eliminar</button>
-                                                            </Tooltip>
-                                                        </div>
-                                                    ))
-                                                ) : seccionSeleccionada === 'total' ? (
-                                                    productosUnicosGlobalList.map((item, idx) => (
-                                                        <div key={idx} className="bg-slate-900/80 border border-slate-800/80 p-3.5 rounded-2xl text-sm font-semibold flex flex-col sm:flex-row justify-between sm:items-center gap-2">
-                                                            <span>📦 {item.producto} (<strong className="font-mono text-indigo-400">{item.sku}</strong>)</span>
-                                                            <div className="flex flex-wrap gap-1.5 text-[11px] font-black">
-                                                                <Tooltip text="Stock físico global en inventario" position="top"><span className="bg-indigo-950 text-indigo-400 px-2 py-0.5 rounded-lg border border-indigo-900 cursor-pointer">Total: {item.cantidadTotal}</span></Tooltip>
-                                                                <Tooltip text="Disponibles en almacén para entregar" position="top"><span className="bg-emerald-950 text-emerald-400 px-2 py-0.5 rounded-lg border border-emerald-900 cursor-pointer">Libres: {item.cantidadLibre}</span></Tooltip>
-                                                                <Tooltip text="Entregadas a colaboradores actualmente" position="top"><span className="bg-amber-950 text-amber-400 px-2 py-0.5 rounded-lg border border-amber-900 cursor-pointer">Uso: {item.cantidadUso}</span></Tooltip>
-                                                                <Tooltip text="Fuera de asignación (deshabilitadas)" position="top"><span className="bg-rose-950 text-rose-400 px-2 py-0.5 rounded-lg border border-rose-900 cursor-pointer">Deshab: {item.cantidadDeshabilitada}</span></Tooltip>
-                                                            </div>
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    Object.keys(asignacionesAgrupadasListMap).length === 0 ? (
-                                                        <p className="text-xs text-slate-500 font-bold text-center py-4">No hay asignaciones registradas.</p>
-                                                    ) : (
-                                                        Object.entries(asignacionesAgrupadasListMap).map(([nombreColaborador, prodsAgrupadosPorSKU]) => {
-                                                            const estaColabExpandido = !!colaboradoresExpandidosMap[nombreColaborador];
-                                                            const totalUnidadesColab = prodsAgrupadosPorSKU.reduce((sum, item) => sum + item.cantidad, 0);
-
-                                                            return (
-                                                                <div key={nombreColaborador} className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-2xl space-y-3">
-                                                                    <div className="font-black text-amber-400 text-sm flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                                                                        <div className="flex items-center gap-2.5">
-                                                                            <Avatar nombre={nombreColaborador} />
-                                                                            <div>
-                                                                                <span className="text-white font-extrabold">{nombreColaborador}</span>
-                                                                                <span className="text-xs text-slate-400 font-bold ml-2">({totalUnidadesColab} equipos activos)</span>
-                                                                            </div>
-                                                                        </div>
-
-                                                                        <div className="flex items-center gap-2">
-                                                                            <Tooltip text={estaColabExpandido ? "Ocultar lista de equipos asignados" : "Ver lista de equipos asignados a esta persona"} position="top">
-                                                                                <button 
-                                                                                    onClick={() => toggleColaboradorExpandido(nombreColaborador)}
-                                                                                    className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-all border border-indigo-400/20 btn-haptic"
-                                                                                >
-                                                                                    {estaColabExpandido ? '📂 Ocultar Equipos' : '👁️ Ver Equipos'}
-                                                                                </button>
-                                                                            </Tooltip>
-                                                                            <Tooltip text="Devolver TODOS los equipos de esta persona al stock libre" position="top">
-                                                                                <button 
-                                                                                    onClick={() => handleDevolverTodoColaborador(nombreColaborador)}
-                                                                                    className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600 hover:text-white cursor-pointer transition-all btn-haptic"
-                                                                                >
-                                                                                    🔄 Devolver Todo
-                                                                                </button>
-                                                                            </Tooltip>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    {estaColabExpandido && (
-                                                                        <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
-                                                                            {prodsAgrupadosPorSKU.map(asigItem => {
-                                                                                const { fechaStr, horaStr } = formatearFechaClean(asigItem);
-                                                                                let obsItemLimpia = asigItem.observaciones || 'Sin observaciones';
-                                                                                obsItemLimpia = obsItemLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
-                                                                                if (!obsItemLimpia) obsItemLimpia = 'Sin observaciones';
-
-                                                                                return (
-                                                                                    <div key={asigItem.sku} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
-                                                                                        <div className="flex justify-between items-start gap-2">
-                                                                                            <div>
-                                                                                                <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
-                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                                                                                                    Cantidad Asignada: <strong className="text-white text-xs">{asigItem.cantidad} unidades</strong>
-                                                                                                </div>
-                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-2">
-                                                                                                    <span>Última asignación:</span>
-                                                                                                    <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-200 font-bold">📅 {fechaStr}</span>
-                                                                                                    <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 font-mono">⏰ {horaStr}</span>
-                                                                                                </div>
-                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-1">
-                                                                                                    Obs: <span className="text-slate-300 font-normal">{obsItemLimpia}</span>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                            
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <Tooltip text="Modificar la observación registrada" position="left">
-                                                                                                    <button 
-                                                                                                        onClick={() => { setEditandoObsKey(asigItem.sku); setNuevaObsTexto(obsItemLimpia !== 'Sin observaciones' ? obsItemLimpia : ''); }} 
-                                                                                                        className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
-                                                                                                    >
-                                                                                                        ✎ Editar Obs.
-                                                                                                    </button>
-                                                                                                </Tooltip>
-                                                                                                <Tooltip text="Devolver parcial o totalmente al almacén" position="left">
-                                                                                                    <button 
-                                                                                                        onClick={() => { setDevolviendoKey(asigItem.sku); setCantDevolver(1); }} 
-                                                                                                        className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
-                                                                                                    >
-                                                                                                        Devolver
-                                                                                                    </button>
-                                                                                                </Tooltip>
-                                                                                            </div>
-                                                                                        </div>
-
-                                                                                        {editandoObsKey === asigItem.sku && (
-                                                                                            <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
-                                                                                                <input 
-                                                                                                    type="text" 
-                                                                                                    placeholder="Escribe la observación..." 
-                                                                                                    value={nuevaObsTexto} 
-                                                                                                    onChange={e => setNuevaObsTexto(e.target.value)} 
-                                                                                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-indigo-500 transition-colors"
-                                                                                                />
-                                                                                                <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
-                                                                                                <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
-                                                                                            </div>
-                                                                                        )}
-
-                                                                                        {devolviendoKey === asigItem.sku && (
-                                                                                            <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-                                                                                                <div className="flex items-center gap-2">
-                                                                                                    <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
-                                                                                                    <input 
-                                                                                                        type="number" 
-                                                                                                        min="1" 
-                                                                                                        max={asigItem.cantidad} 
-                                                                                                        value={cantDevolver} 
-                                                                                                        onChange={e => setCantDevolver(e.target.value)} 
-                                                                                                        className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center focus:border-indigo-500 outline-none" 
-                                                                                                    />
-                                                                                                    <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
-                                                                                                </div>
-                                                                                                <div className="flex items-center gap-2">
-                                                                                                    <button onClick={() => handleEjecutarDevolucionAgrupada(asigItem)} className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black hover:bg-emerald-700 cursor-pointer">Confirmar</button>
-                                                                                                    <button onClick={() => setDevolviendoKey(null)} className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })
-                                                    )
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        )}
+                                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer btn-haptic border border-indigo-400/20">Guardar Producto</button>
+                            </form>
+                        </div>
                     </div>
                 </div>
             );
