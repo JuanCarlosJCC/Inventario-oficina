@@ -39,8 +39,8 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const SUPABASE_URL = 'https://ghjcvvcibapzhryrdtte.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_Nejs0JlpzyGf5ALznlTSdA_969MDDH4';
+        const SUPABASE_URL = 'https://oceaobdjhbnrusparxvp.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_GRoHl1gsQ9Ploya6veF_EA_VRtfQb73';
 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -162,22 +162,26 @@
                 fetchData();
             }, []);
 
-            const formatearFecha = (fechaStr) => {
-                if (!fechaStr) return 'Fecha no registrada';
-                const fecha = new Date(fechaStr);
-                if (isNaN(fecha.getTime())) return fechaStr;
-                return fecha.toLocaleString('es-PE', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                });
+            const formatearFecha = (item) => {
+                const rawFecha = item.fecha_asignacion || item.created_at;
+                if (rawFecha) {
+                    const fecha = new Date(rawFecha);
+                    if (!isNaN(fecha.getTime())) {
+                        return fecha.toLocaleString('es-PE', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true
+                        });
+                    }
+                }
+                return 'Registro Previo';
             };
 
             const descargarInventarioCSV = () => {
-                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Registro'];
+                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Asignacion'];
                 let filas = [];
 
                 if (productos.length > 0) {
@@ -189,11 +193,11 @@
                         item.observaciones || '',
                         item.personal_asignado || '',
                         item.activo !== false ? 'ACTIVO' : 'DESHABILITADO',
-                        item.created_at || ''
+                        item.fecha_asignacion || item.created_at || ''
                     ]);
                 } else {
                     filas = [
-                        ['PROD-001', 'Tecnologia', 'Laptop HP ProBook', '5', 'Stock inicial', '', 'ACTIVO', new Date().toISOString()]
+                        ['PROD-001', 'Tecnologia', 'Laptop HP ProBook', '5', 'Stock inicial', '', 'ACTIVO', '']
                     ];
                 }
 
@@ -202,11 +206,11 @@
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.setAttribute('href', url);
-                link.setAttribute('download', `inventario_registro_${new Date().toISOString().slice(0,10)}.csv`);
+                link.setAttribute('download', `registro_inventario_${new Date().toISOString().slice(0,10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                mostrarToast('Inventario completo exportado.');
+                mostrarToast('Registro de inventario exportado.');
             };
 
             const handleImportarCSV = async (e) => {
@@ -252,9 +256,11 @@
                             const columnas = fila.split(separador).map(c => c.trim().replace(/^["']|["']$/g, ''));
                             
                             if (columnas.length >= 3) {
-                                let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', personalAsignado = '', estadoStr = '';
+                                let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', personalAsignado = '', estadoStr = '', fechaStr = '';
 
-                                if (columnas.length >= 7) {
+                                if (columnas.length >= 8) {
+                                    [sku, categoria, productoNombre, cantidadStr, observaciones, personalAsignado, estadoStr, fechaStr] = columnas;
+                                } else if (columnas.length >= 7) {
                                     [sku, categoria, productoNombre, cantidadStr, observaciones, personalAsignado, estadoStr] = columnas;
                                 } else if (columnas.length >= 5) {
                                     [sku, categoria, productoNombre, cantidadStr, observaciones] = columnas;
@@ -294,7 +300,7 @@
                                             observaciones: observaciones || 'Importado masivo',
                                             personal_asignado: personalAsignado || '',
                                             activo: esActivo,
-                                            created_at: new Date().toISOString()
+                                            fecha_asignacion: fechaStr || new Date().toISOString()
                                         }]);
                                         creadosCount++;
                                     }
@@ -442,20 +448,14 @@
             const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
             const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
 
-            // REGISTRO INDIVIDUAL DE HISTORIAL DE ASIGNACIONES CON FECHA REAL
+            // CÁLCULO DE BITÁCORA CON ORDENAMIENTO CRONOLÓGICO Y FECHAS FIJAS
             const listaHistorialAsignaciones = productosActivos
                 .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
-                .map(p => ({
-                    id: p.id,
-                    sku: p.sku,
-                    categoria: p.categoria,
-                    producto: p.producto,
-                    cantidad: p.cantidad,
-                    personal_asignado: p.personal_asignado,
-                    observaciones: p.observaciones || '',
-                    fecha: p.created_at || p.fecha || new Date().toISOString()
-                }))
-                .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+                .sort((a, b) => {
+                    const fA = new Date(a.fecha_asignacion || a.created_at || 0).getTime();
+                    const fB = new Date(b.fecha_asignacion || b.created_at || 0).getTime();
+                    return fB - fA || b.id - a.id;
+                });
 
             const historialFiltrado = listaHistorialAsignaciones.filter(item => {
                 const coincideTexto = (item.producto && item.producto.toLowerCase().includes(busqueda.toLowerCase())) ||
@@ -490,8 +490,7 @@
                     cantidad: Number(formProducto.cantidad),
                     observaciones: formProducto.observaciones,
                     personal_asignado: '',
-                    activo: true,
-                    created_at: new Date().toISOString()
+                    activo: true
                 }]);
                 if (!error) {
                     setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '' });
@@ -525,8 +524,7 @@
                             cantidad: cantidadSumar,
                             observaciones: 'Reabastecido',
                             personal_asignado: '',
-                            activo: true,
-                            created_at: new Date().toISOString()
+                            activo: true
                         }]);
                     }
                     setFormRestock({ sku: '', cantidadExtra: '' });
@@ -607,7 +605,7 @@
                 );
             };
 
-            // REGISTRO INDIVIDUAL DE ASIGNACIÓN CON TIMESTAMP DE FECHA EXACTA
+            // GUARDA FECHA_ASIGNACION INDIVIDUAL E INMUTABLE
             const handleConfirmarAsignacionMultiple = async (e) => {
                 e.preventDefault();
                 const prodIds = Object.keys(prodSeleccionadosMap);
@@ -622,7 +620,7 @@
 
                 try {
                     let totalAsignacionesCalculadas = 0;
-                    const fechaActual = new Date().toISOString();
+                    const fechaActualISO = new Date().toISOString();
 
                     for (const idProd of prodIds) {
                         const prodOriginal = productosLibresList.find(p => p.id == idProd);
@@ -644,7 +642,6 @@
                         const cantPorPersona = Number(prodSeleccionadosMap[idProd]) || 1;
 
                         for (const persNombre of personalSeleccionados) {
-                            // Crear un registro individual con fecha única en el historial de auditoría
                             await supabase.from('productos').insert([{
                                 sku: prodOriginal.sku,
                                 categoria: prodOriginal.categoria,
@@ -653,7 +650,7 @@
                                 observaciones: obsAsignacion || '',
                                 personal_asignado: persNombre,
                                 activo: true,
-                                created_at: fechaActual
+                                fecha_asignacion: fechaActualISO
                             }]);
                             totalAsignacionesCalculadas++;
                         }
@@ -679,7 +676,7 @@
                     setPersonalSeleccionados([]);
                     setObsAsignacion('');
                     fetchData();
-                    mostrarToast(`¡Éxito! Se registraron ${totalAsignacionesCalculadas} asignaciones con fecha.`);
+                    mostrarToast(`¡Éxito! Se registraron ${totalAsignacionesCalculadas} asignaciones con fecha guardada.`);
                 } catch (err) {
                     console.error(err);
                     mostrarToast('Error en el proceso de asignación múltiple.', 'error');
@@ -720,8 +717,7 @@
                             cantidad: cantADevolver,
                             observaciones: 'Devuelto',
                             personal_asignado: '',
-                            activo: true,
-                            created_at: new Date().toISOString()
+                            activo: true
                         }]);
                     }
 
@@ -775,7 +771,7 @@
                         await supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + Number(item.cantidad) }).eq('id', stockLibreExistente.id);
                     } else {
                         await supabase.from('productos').insert([{
-                            sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true, created_at: new Date().toISOString()
+                            sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true
                         }]);
                     }
                     await supabase.from('productos').delete().eq('id', item.id);
@@ -1191,14 +1187,14 @@
                             </section>
                         )}
 
-                        {/* HISTORIAL TIPO BITÁCORA / REGISTRO AUDITABLE CON FECHAS */}
+                        {/* BITÁCORA FIJA CON FECHA DE ASIGNACIÓN ESTÁTICA */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Registro cronológico detallado de cada asignación realizada</p>
+                                            <p className="text-xs text-slate-400">Registro con fecha fija e inmutable de asignación</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
@@ -1218,7 +1214,7 @@
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-950/90 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
-                                                <th className="p-4">Fecha y Hora</th>
+                                                <th className="p-4">Fecha y Hora de Asignación</th>
                                                 <th className="p-4">SKU</th>
                                                 <th className="p-4">Categoría</th>
                                                 <th className="p-4">Producto</th>
@@ -1234,7 +1230,7 @@
                                                 productosPaginados.map(item => (
                                                     <tr key={item.id} className="hover:bg-indigo-950/20 transition-colors">
                                                         <td className="p-4 text-xs font-semibold text-slate-400 whitespace-nowrap">
-                                                            📅 {formatearFecha(item.fecha)}
+                                                            📅 {formatearFecha(item)}
                                                         </td>
                                                         <td className="p-4 font-mono font-black text-indigo-400">{item.sku}</td>
                                                         <td className="p-4 text-slate-400">{item.categoria}</td>
@@ -1316,7 +1312,7 @@
                                                                                         Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
                                                                                     </div>
                                                                                     <div className="text-[11px] text-slate-500 font-semibold mt-0.5">
-                                                                                        Asignado el: {formatearFecha(asigItem.created_at)}
+                                                                                        Fecha Asignada: {formatearFecha(asigItem)}
                                                                                     </div>
                                                                                     <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
                                                                                         Obs: <span className="text-slate-300 font-normal">{asigItem.observaciones || 'Sin observaciones'}</span>
