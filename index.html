@@ -45,21 +45,6 @@
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
         }
-
-        .gradient-border {
-            position: relative;
-            background-clip: padding-box;
-            border: 1px solid transparent;
-        }
-        .gradient-border::before {
-            content: '';
-            position: absolute;
-            top: 0; right: 0; bottom: 0; left: 0;
-            z-index: -1;
-            margin: -1px;
-            border-radius: inherit;
-            background: linear-gradient(to bottom right, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.1), rgba(255, 255, 255, 0.05));
-        }
     </style>
 </head>
 <body class="font-sans transition-colors duration-500 selection:bg-indigo-500 selection:text-white antialiased bg-[#070A12] text-slate-100">
@@ -115,8 +100,14 @@
         }
 
         function InventoryApp() {
+            const [usuarioSesion, setUsuarioSesion] = useState(null);
+            const [loginUser, setLoginUser] = useState('');
+            const [loginPass, setLoginPass] = useState('');
+            const [loginError, setLoginError] = useState('');
+
             const [productos, setProductos] = useState([]);
             const [personalList, setPersonalList] = useState([]);
+            const [usuariosList, setUsuariosList] = useState([]);
             const [categoriasList, setCategoriasList] = useState([]);
             const [cargosList, setCargosList] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -145,6 +136,23 @@
             const [formRestock, setFormRestock] = useState({ sku: '', cantidadExtra: '' });
             const [skuADeshabilitar, setSkuADeshabilitar] = useState('');
             const [formPersonal, setFormPersonal] = useState({ nombre: '', cargo: '' });
+            
+            const [formNuevoUsuario, setFormNuevoUsuario] = useState({
+                username: '',
+                password: '',
+                nombre: '',
+                rol: 'OPERADOR',
+                permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
+            });
+
+            const [usuarioEditando, setUsuarioEditando] = useState(null);
+            const [formEditarUsuario, setFormEditarUsuario] = useState({ 
+                nombre: '', 
+                username: '', 
+                password: '', 
+                rol: 'OPERADOR',
+                permisos: { asignar: true, productos: true, deshabilitados: true, personal: true } 
+            });
 
             const [prodSeleccionadosMap, setProdSeleccionadosMap] = useState({});
             const [personalSeleccionados, setPersonalSeleccionados] = useState([]);
@@ -159,15 +167,15 @@
                 if (!supabase) return;
                 setLoading(true);
                 try {
-                    const { data: prodData, error: prodErr } = await supabase.from('productos').select('*').order('id', { ascending: false });
+                    const { data: prodData } = await supabase.from('productos').select('*').order('id', { ascending: false });
                     const { data: persData } = await supabase.from('personal').select('*').order('nombre', { ascending: true });
+                    const { data: userData } = await supabase.from('usuarios').select('*').order('id', { ascending: true });
                     const { data: catData } = await supabase.from('categorias').select('*').order('nombre', { ascending: true });
                     const { data: cargoData } = await supabase.from('cargos').select('*').order('nombre', { ascending: true });
 
-                    if (prodErr) console.error("Error al consultar productos:", prodErr);
-
                     setProductos(prodData || []);
                     setPersonalList(persData || []);
+                    setUsuariosList(userData || []);
                     
                     if (catData && catData.length > 0) {
                         setCategoriasList(catData);
@@ -183,14 +191,186 @@
                         setCargosList(unicos.map((c, i) => ({ id: i + 1, nombre: c })));
                     }
                 } catch (error) {
-                    console.error('Error general al cargar datos:', error);
+                    console.error('Error al cargar datos:', error);
                 }
                 setLoading(false);
             };
 
             useEffect(() => {
+                const sesionGuardada = localStorage.getItem('sesion_inventario');
+                if (sesionGuardada) {
+                    const userObj = JSON.parse(sesionGuardada);
+                    setUsuarioSesion(userObj);
+                    ajustarTabInicial(userObj);
+                }
                 fetchData();
             }, []);
+
+            const ajustarTabInicial = (user) => {
+                if (!user) return;
+                if (user.rol === 'ADMIN_PRINCIPAL') {
+                    setTabActiva('asignar');
+                    return;
+                }
+                const p = user.permisos || {};
+                if (p.asignar) setTabActiva('asignar');
+                else if (p.productos) setTabActiva('productos');
+                else if (p.deshabilitados) setTabActiva('deshabilitados');
+                else if (p.personal) setTabActiva('personal');
+            };
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setLoginError('');
+                try {
+                    const { data, error } = await supabase
+                        .from('usuarios')
+                        .select('*')
+                        .eq('username', loginUser.trim())
+                        .eq('password', loginPass.trim())
+                        .single();
+
+                    if (error || !data) {
+                        setLoginError('Usuario o contraseña incorrectos.');
+                        return;
+                    }
+
+                    setUsuarioSesion(data);
+                    localStorage.setItem('sesion_inventario', JSON.stringify(data));
+                    ajustarTabInicial(data);
+                    mostrarToast(`Bienvenido/a, ${data.nombre}`);
+                } catch (err) {
+                    setLoginError('Error de conexión con el servidor.');
+                }
+            };
+
+            const handleLogout = () => {
+                setUsuarioSesion(null);
+                localStorage.removeItem('sesion_inventario');
+            };
+
+            const handleCrearUsuario = async (e) => {
+                e.preventDefault();
+                try {
+                    const { error } = await supabase.from('usuarios').insert([{
+                        username: formNuevoUsuario.username.trim(),
+                        password: formNuevoUsuario.password.trim(),
+                        nombre: formNuevoUsuario.nombre.trim(),
+                        rol: formNuevoUsuario.rol,
+                        permisos: formNuevoUsuario.permisos
+                    }]);
+
+                    if (error) {
+                        mostrarToast(`Error: ${error.message}`, 'error');
+                    } else {
+                        mostrarToast('Usuario registrado con éxito.');
+                        setFormNuevoUsuario({
+                            username: '',
+                            password: '',
+                            nombre: '',
+                            rol: 'OPERADOR',
+                            permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
+                        });
+                        fetchData();
+                    }
+                } catch (err) {
+                    mostrarToast('Error al crear usuario.', 'error');
+                }
+            };
+
+            const handleIniciarEdicionUsuario = (user) => {
+                setUsuarioEditando(user);
+                setFormEditarUsuario({
+                    nombre: user.nombre,
+                    username: user.username,
+                    password: user.password,
+                    rol: user.rol,
+                    permisos: user.permisos || { asignar: true, productos: true, deshabilitados: true, personal: true }
+                });
+            };
+
+            const handleGuardarCambiosUsuario = async (e) => {
+                e.preventDefault();
+                if (!usuarioEditando) return;
+
+                try {
+                    const datosActualizar = {
+                        nombre: formEditarUsuario.nombre.trim(),
+                        username: formEditarUsuario.username.trim(),
+                        password: formEditarUsuario.password.trim(),
+                        rol: formEditarUsuario.rol,
+                        permisos: formEditarUsuario.permisos
+                    };
+
+                    const { error } = await supabase
+                        .from('usuarios')
+                        .update(datosActualizar)
+                        .eq('id', usuarioEditando.id);
+
+                    if (error) {
+                        mostrarToast(`Error: ${error.message}`, 'error');
+                    } else {
+                        mostrarToast('Usuario y permisos actualizados correctamente.');
+                        
+                        if (usuarioEditando.id === usuarioSesion.id) {
+                            const sesionActualizada = { ...usuarioSesion, ...datosActualizar };
+                            setUsuarioSesion(sesionActualizada);
+                            localStorage.setItem('sesion_inventario', JSON.stringify(sesionActualizada));
+                        }
+
+                        setUsuarioEditando(null);
+                        fetchData();
+                    }
+                } catch (err) {
+                    mostrarToast('Error al guardar datos.', 'error');
+                }
+            };
+
+            const handleTogglePermisoDirecto = async (user, permisoKey) => {
+                try {
+                    const permisosAnteriores = user.permisos || { asignar: true, productos: true, deshabilitados: true, personal: true };
+                    const nuevosPermisos = {
+                        ...permisosAnteriores,
+                        [permisoKey]: !permisosAnteriores[permisoKey]
+                    };
+
+                    const { error } = await supabase
+                        .from('usuarios')
+                        .update({ permisos: nuevosPermisos })
+                        .eq('id', user.id);
+
+                    if (!error) {
+                        fetchData();
+                        mostrarToast(`Permisos de ${user.nombre} actualizados.`);
+                    }
+                } catch (err) {
+                    mostrarToast('Error al cambiar permisos.', 'error');
+                }
+            };
+
+            const handleEliminarUsuario = async (idUser, nombre) => {
+                if (idUser === usuarioSesion.id) {
+                    mostrarToast('No puedes eliminar tu propio usuario en sesión.', 'error');
+                    return;
+                }
+                if (!window.confirm(`¿Eliminar al usuario "${nombre}"?`)) return;
+
+                try {
+                    const { error } = await supabase.from('usuarios').delete().eq('id', idUser);
+                    if (!error) {
+                        mostrarToast('Usuario eliminado.');
+                        fetchData();
+                    }
+                } catch (err) {
+                    mostrarToast('Error al eliminar usuario.', 'error');
+                }
+            };
+
+            const tienePermiso = (clave) => {
+                if (!usuarioSesion) return false;
+                if (usuarioSesion.rol === 'ADMIN_PRINCIPAL') return true;
+                return !!usuarioSesion.permisos?.[clave];
+            };
 
             const formatearFechaClean = (item) => {
                 const rawFecha = item.fecha_asignacion || item.created_at || item.fecha;
@@ -198,17 +378,8 @@
                 const fecha = new Date(rawFecha);
                 if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
 
-                const fechaStr = fecha.toLocaleDateString('es-PE', {
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric'
-                });
-
-                const horaStr = fecha.toLocaleTimeString('es-PE', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                });
+                const fechaStr = fecha.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+                const horaStr = fecha.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
 
                 return { fechaStr, horaStr };
             };
@@ -582,17 +753,11 @@
             });
 
             const toggleLoteExpandido = (loteKey) => {
-                setLotesExpandidosMap(prev => ({
-                    ...prev,
-                    [loteKey]: !prev[loteKey]
-                }));
+                setLotesExpandidosMap(prev => ({ ...prev, [loteKey]: !prev[loteKey] }));
             };
 
             const toggleColaboradorExpandido = (nombreColaborador) => {
-                setColaboradoresExpandidosMap(prev => ({
-                    ...prev,
-                    [nombreColaborador]: !prev[nombreColaborador]
-                }));
+                setColaboradoresExpandidosMap(prev => ({ ...prev, [nombreColaborador]: !prev[nombreColaborador] }));
             };
 
             const asignacionesPorPersonalMap = productosActivos
@@ -975,6 +1140,55 @@
                 mostrarToast('Personal eliminado.');
             };
 
+            const esAdminPrincipal = usuarioSesion && usuarioSesion.rol === 'ADMIN_PRINCIPAL';
+
+            if (!usuarioSesion) {
+                return (
+                    <div className="min-h-screen bg-[#070A12] flex items-center justify-center p-4">
+                        <div className="max-w-md w-full bg-slate-900/80 border border-slate-800 rounded-3xl p-8 backdrop-blur-2xl shadow-2xl space-y-6">
+                            <div className="text-center space-y-2">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-3xl mx-auto shadow-lg shadow-indigo-500/30 border border-white/20">🏢</div>
+                                <h1 className="text-2xl font-black text-white tracking-tight">Cordero y Asociados</h1>
+                                <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider">Sistema de Gestión de Inventario</p>
+                            </div>
+
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                {loginError && (
+                                    <div className="p-3.5 bg-rose-950/80 border border-rose-500/40 rounded-xl text-xs font-bold text-rose-300 text-center">
+                                        ⚠️ {loginError}
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="block text-xs font-black uppercase mb-1.5 text-slate-400">Usuario</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ingresa tu usuario" 
+                                        value={loginUser} 
+                                        onChange={e => setLoginUser(e.target.value)} 
+                                        className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white font-semibold outline-none focus:border-indigo-500 transition-colors" 
+                                        required 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase mb-1.5 text-slate-400">Contraseña</label>
+                                    <input 
+                                        type="password" 
+                                        placeholder="••••••••" 
+                                        value={loginPass} 
+                                        onChange={e => setLoginPass(e.target.value)} 
+                                        className="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white font-semibold outline-none focus:border-indigo-500 transition-colors" 
+                                        required 
+                                    />
+                                </div>
+                                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 rounded-xl shadow-lg shadow-indigo-600/30 cursor-pointer text-sm transition-all active:scale-95 border border-indigo-400/20">
+                                    Iniciar Sesión
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
             return (
                 <div className={`min-h-screen ${darkMode ? 'bg-[#070A12] text-slate-100' : 'bg-slate-100 text-slate-900'} p-4 md:p-8 transition-colors duration-500`}>
                     {toast.show && (
@@ -984,10 +1198,8 @@
                     )}
 
                     <div className="max-w-7xl mx-auto space-y-6">
-                        {/* Cabecera Principal Elegante */}
+                        {/* Cabecera Principal */}
                         <header className={`${darkMode ? 'glass-panel border-indigo-500/20 shadow-indigo-950/30' : 'bg-white/90 border-slate-200 shadow-slate-200/60'} p-6 md:p-8 rounded-3xl border backdrop-blur-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-2xl transition-all relative overflow-hidden`}>
-                            <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
-                            
                             <div className="flex items-center gap-5 relative z-10">
                                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 flex items-center justify-center text-2xl text-white shadow-xl shadow-indigo-500/30 border border-white/20">🏢</div>
                                 <div>
@@ -1002,16 +1214,21 @@
                                 </div>
                             </div>
                             <div className="flex items-center gap-3 relative z-10">
+                                <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-slate-700">
+                                    <Avatar nombre={usuarioSesion.nombre} />
+                                    <div className="text-left">
+                                        <span className="block text-xs font-black text-white">{usuarioSesion.nombre}</span>
+                                        <span className="block text-[10px] font-extrabold text-indigo-400 uppercase">{usuarioSesion.rol}</span>
+                                    </div>
+                                </div>
                                 <Tooltip text={mostrarHistorial ? "Ocultar Bitácora" : "Ver Bitácora de Asignaciones"}>
-                                    <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-5 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-95 border border-indigo-400/30">
-                                        📜 <span>{mostrarHistorial ? 'Ocultar Bitácora' : 'Bitácora'}</span>
+                                    <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-4 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-95 border border-indigo-400/30">
+                                        📜 <span>{mostrarHistorial ? 'Ocultar' : 'Bitácora'}</span>
                                     </button>
                                 </Tooltip>
-                                <Tooltip text="Alternar Modo Claro / Oscuro">
-                                    <button onClick={() => setDarkMode(!darkMode)} className="p-3.5 rounded-2xl font-black text-xs bg-slate-800/80 text-amber-400 border border-slate-700/80 cursor-pointer hover:bg-slate-700/80 transition-all hover:scale-[1.02] active:scale-95 shadow-md">
-                                        {darkMode ? '☀️' : '🌙'}
-                                    </button>
-                                </Tooltip>
+                                <button onClick={handleLogout} className="p-3.5 rounded-2xl font-black text-xs bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600 hover:text-white cursor-pointer transition-all active:scale-95">
+                                    🚪 Salir
+                                </button>
                             </div>
                         </header>
 
@@ -1053,16 +1270,201 @@
                             </div>
                         </div>
 
-                        {/* BARRA DE NAVEGACIÓN DE PESTAÑAS */}
+                        {/* BARRA DE NAVEGACIÓN DE PESTAÑAS (SEGÚN PERMISOS) */}
                         <div className={`flex gap-3 ${darkMode ? 'bg-slate-900/80 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-2 rounded-3xl border backdrop-blur-xl shadow-xl overflow-x-auto`}>
-                            <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🔗 Asignar Productos</button>
-                            <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'productos' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>📦 Catálogo e Importación CSV</button>
-                            <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'deshabilitados' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
-                            <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'personal' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👥 Agregar Personal</button>
+                            {tienePermiso('asignar') && (
+                                <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🔗 Asignar Productos</button>
+                            )}
+                            {tienePermiso('productos') && (
+                                <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'productos' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>📦 Catálogo e Importación CSV</button>
+                            )}
+                            {tienePermiso('deshabilitados') && (
+                                <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'deshabilitados' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
+                            )}
+                            {tienePermiso('personal') && (
+                                <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'personal' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👥 Agregar Personal</button>
+                            )}
+                            
+                            {/* EXCLUSIVO DEL ADMINISTRADOR PRINCIPAL */}
+                            {esAdminPrincipal && (
+                                <button onClick={() => setTabActiva('usuarios')} className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'usuarios' ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/30' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👑 Gestión de Usuarios y Permisos</button>
+                            )}
                         </div>
 
+                        {/* PESTAÑA: GESTIÓN DE USUARIOS Y ASIGNACIÓN DETALLADA DE PERMISOS */}
+                        {tabActiva === 'usuarios' && esAdminPrincipal && (
+                            <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80 text-slate-100' : 'bg-white/80 border-slate-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl`}>
+                                <div>
+                                    <h2 className="text-xl font-black flex items-center gap-3">
+                                        <span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">👑</span> Control Granular de Usuarios y Permisos
+                                    </h2>
+                                    <p className="text-xs text-slate-400 mt-1">Como Administrador Principal, puedes crear usuarios, modificar contraseñas y definir qué campos y herramientas exactas puede utilizar cada usuario.</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                    {/* FORMULARIO DE CREACIÓN O EDICIÓN */}
+                                    <div className="space-y-4">
+                                        {!usuarioEditando ? (
+                                            <form onSubmit={handleCrearUsuario} className="bg-slate-950/80 p-6 rounded-2xl border border-slate-800/80 space-y-4 shadow-inner">
+                                                <h3 className="text-sm font-black text-indigo-400 uppercase tracking-wider">➕ Crear Nuevo Usuario</h3>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nombre Completo</label>
+                                                    <input type="text" placeholder="Ej. Juan Pérez" value={formNuevoUsuario.nombre} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, nombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Usuario / Login</label>
+                                                    <input type="text" placeholder="Ej. jperez" value={formNuevoUsuario.username} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, username: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Contraseña</label>
+                                                    <input type="password" placeholder="••••••••" value={formNuevoUsuario.password} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, password: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Rol</label>
+                                                    <select value={formNuevoUsuario.rol} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, rol: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500">
+                                                        <option value="OPERADOR">OPERADOR (Acceso Según Permisos)</option>
+                                                        <option value="ADMIN">ADMINISTRADOR (Acceso Restringido Sin Panel Usuarios)</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="space-y-2 pt-2 border-t border-slate-800">
+                                                    <label className="block text-[11px] font-black uppercase text-indigo-300">Campos / Permisos Permitidos:</label>
+                                                    {[
+                                                        { key: 'asignar', label: '🔗 Asignar Productos' },
+                                                        { key: 'productos', label: '📦 Catálogo y CSV' },
+                                                        { key: 'deshabilitados', label: '🚫 Ver Deshabilitados' },
+                                                        { key: 'personal', label: '👥 Gestión de Personal' }
+                                                    ].map(p => (
+                                                        <label key={p.key} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer bg-slate-900 p-2 rounded-xl border border-slate-800">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={!!formNuevoUsuario.permisos[p.key]} 
+                                                                onChange={e => setFormNuevoUsuario({
+                                                                    ...formNuevoUsuario,
+                                                                    permisos: { ...formNuevoUsuario.permisos, [p.key]: e.target.checked }
+                                                                })}
+                                                                className="accent-indigo-600 rounded"
+                                                            />
+                                                            <span>{p.label}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+
+                                                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3 rounded-xl text-xs shadow-lg shadow-indigo-600/30 cursor-pointer active:scale-95 transition-all">
+                                                    + Registrar Usuario
+                                                </button>
+                                            </form>
+                                        ) : (
+                                            <form onSubmit={handleGuardarCambiosUsuario} className="bg-indigo-950/30 p-6 rounded-2xl border border-indigo-500/50 space-y-4 shadow-xl">
+                                                <div className="flex justify-between items-center">
+                                                    <h3 className="text-sm font-black text-indigo-300 uppercase tracking-wider">✏️ Editar Usuario y Permisos</h3>
+                                                    <button type="button" onClick={() => setUsuarioEditando(null)} className="text-xs font-bold text-slate-400 hover:text-white">✕ Cancelar</button>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nombre Completo</label>
+                                                    <input type="text" value={formEditarUsuario.nombre} onChange={e => setFormEditarUsuario({...formEditarUsuario, nombre: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Usuario / Login</label>
+                                                    <input type="text" value={formEditarUsuario.username} onChange={e => setFormEditarUsuario({...formEditarUsuario, username: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white outline-none focus:border-indigo-500" required />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-black uppercase mb-1 text-slate-400">Nueva Contraseña</label>
+                                                    <input type="text" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono outline-none focus:border-indigo-500" required />
+                                                </div>
+
+                                                <div className="space-y-2 pt-2 border-t border-slate-800">
+                                                    <label className="block text-[11px] font-black uppercase text-indigo-300">Actualizar Permisos de Secciones:</label>
+                                                    {[
+                                                        { key: 'asignar', label: '🔗 Asignar Productos' },
+                                                        { key: 'productos', label: '📦 Catálogo y CSV' },
+                                                        { key: 'deshabilitados', label: '🚫 Ver Deshabilitados' },
+                                                        { key: 'personal', label: '👥 Gestión de Personal' }
+                                                    ].map(p => (
+                                                        <label key={p.key} className="flex items-center gap-2 text-xs font-semibold text-slate-300 cursor-pointer bg-slate-900 p-2 rounded-xl border border-slate-800">
+                                                            <input 
+                                                                type="checkbox" 
+                                                                checked={!!formEditarUsuario.permisos[p.key]} 
+                                                                onChange={e => setFormEditarUsuario({
+                                                                    ...formEditarUsuario,
+                                                                    permisos: { ...formEditarUsuario.permisos, [p.key]: e.target.checked }
+                                                                })}
+                                                                className="accent-indigo-600 rounded"
+                                                            />
+                                                            <span>{p.label}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+
+                                                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl text-xs shadow-lg shadow-emerald-600/30 cursor-pointer active:scale-95 transition-all">
+                                                    💾 Guardar Cambios
+                                                </button>
+                                            </form>
+                                        )}
+                                    </div>
+
+                                    {/* LISTA Y GESTIÓN EN TIEMPO REAL */}
+                                    <div className="lg:col-span-2 space-y-3">
+                                        <h3 className="text-sm font-black text-slate-300 uppercase tracking-wider">Usuarios y Control de Permisos ({usuariosList.length})</h3>
+                                        <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                                            {usuariosList.map(u => (
+                                                <div key={u.id} className="bg-slate-950/80 border border-slate-800/80 p-4.5 rounded-2xl flex flex-col justify-between gap-4">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3">
+                                                            <Avatar nombre={u.nombre} />
+                                                            <div>
+                                                                <span className="font-extrabold text-white text-sm">{u.nombre}</span>
+                                                                <span className="text-xs text-indigo-400 font-mono ml-2">(@{u.username})</span>
+                                                                <span className={`ml-2 px-2 py-0.5 rounded-lg text-[10px] font-black ${u.rol === 'ADMIN_PRINCIPAL' ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-slate-800 text-slate-300'}`}>{u.rol}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2">
+                                                            <button onClick={() => handleIniciarEdicionUsuario(u)} className="px-3 py-1.5 bg-indigo-600/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-black cursor-pointer transition-all">
+                                                                ✏️ Editar
+                                                            </button>
+                                                            {u.rol !== 'ADMIN_PRINCIPAL' && (
+                                                                <button onClick={() => handleEliminarUsuario(u.id, u.nombre)} className="px-3 py-1.5 bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600 hover:text-white rounded-xl text-xs font-black cursor-pointer transition-all">
+                                                                    🗑️
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* MATRIZ DE PERMISOS EN VIVO */}
+                                                    {u.rol !== 'ADMIN_PRINCIPAL' && (
+                                                        <div className="pt-3 border-t border-slate-900 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                                            {[
+                                                                { key: 'asignar', label: '🔗 Asignar' },
+                                                                { key: 'productos', label: '📦 Catálogo' },
+                                                                { key: 'deshabilitados', label: '🚫 Deshab.' },
+                                                                { key: 'personal', label: '👥 Personal' }
+                                                            ].map(p => {
+                                                                const activo = !!u.permisos?.[p.key];
+                                                                return (
+                                                                    <button
+                                                                        key={p.key}
+                                                                        type="button"
+                                                                        onClick={() => handleTogglePermisoDirecto(u, p.key)}
+                                                                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-black border flex items-center justify-between cursor-pointer transition-all ${activo ? 'bg-indigo-950/60 border-indigo-500/50 text-indigo-300' : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:border-slate-700'}`}
+                                                                    >
+                                                                        <span>{p.label}</span>
+                                                                        <span>{activo ? '✅' : '❌'}</span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+                        )}
+
                         {/* PESTAÑA: ASIGNAR PRODUCTOS */}
-                        {tabActiva === 'asignar' && (
+                        {tabActiva === 'asignar' && tienePermiso('asignar') && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80 text-slate-100' : 'bg-white/80 border-slate-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl`}>
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 border-b border-slate-800/60 pb-4">
                                     <div>
@@ -1168,8 +1570,8 @@
                             </section>
                         )}
 
-                        {/* PESTAÑA: GESTIONAR CATALOGO DE PRODUCTOS Y CSV BASE */}
-                        {tabActiva === 'productos' && (
+                        {/* PESTAÑA: PRODUCTOS / CSV */}
+                        {tabActiva === 'productos' && tienePermiso('productos') && (
                             <div className="space-y-6 animate-tab">
                                 <section className={`${darkMode ? 'bg-gradient-to-r from-indigo-950/50 via-slate-900/90 to-purple-950/50 border-indigo-500/30 text-slate-100' : 'bg-gradient-to-r from-indigo-50 via-white to-purple-50 border-indigo-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-4 shadow-2xl`}>
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1307,7 +1709,7 @@
                         )}
 
                         {/* PESTAÑA: DESHABILITADOS */}
-                        {tabActiva === 'deshabilitados' && (
+                        {tabActiva === 'deshabilitados' && tienePermiso('deshabilitados') && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl`}>
                                 <div>
                                     <h2 className="text-xl font-black">🚫 Productos Deshabilitados</h2>
@@ -1338,8 +1740,8 @@
                             </section>
                         )}
 
-                        {/* PESTAÑA: AGREGAR PERSONAL */}
-                        {tabActiva === 'personal' && (
+                        {/* PESTAÑA: PERSONAL */}
+                        {tabActiva === 'personal' && tienePermiso('personal') && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80 text-slate-100' : 'bg-white/80 border-slate-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl`}>
                                 <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">👥</span> Agregar Nuevo Personal</h2>
                                 <form onSubmit={handleSavePersonal} className="space-y-4">
@@ -1396,14 +1798,6 @@
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors shadow-inner" />
                                         </div>
                                     </div>
-
-                                    <div className="flex items-center gap-2 overflow-x-auto pt-1">
-                                        <span className="text-[11px] font-black text-slate-400 uppercase tracking-wider shrink-0">Filtro Rápido:</span>
-                                        <button onClick={() => setFiltroCategoria('TODAS')} className={`px-3 py-1.5 rounded-xl text-[11px] font-black cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === 'TODAS' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>Todas</button>
-                                        {categoriasList.map(cat => (
-                                            <button key={cat.id} onClick={() => setFiltroCategoria(cat.nombre)} className={`px-3 py-1.5 rounded-xl text-[11px] font-black cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === cat.nombre ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>{cat.nombre}</button>
-                                        ))}
-                                    </div>
                                 </div>
 
                                 <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
@@ -1445,22 +1839,15 @@
                                                                         <span className="bg-purple-950/80 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs shadow-sm">🚀 ASIGNACIÓN</span>
                                                                     </td>
                                                                     <td className="p-4 text-slate-400 font-bold">Varias Categ.</td>
-                                                                    <td className="p-4 font-extrabold text-indigo-300">
-                                                                        {grupo.prodsCount} Producto(s)
-                                                                    </td>
+                                                                    <td className="p-4 font-extrabold text-indigo-300">{grupo.prodsCount} Producto(s)</td>
                                                                     <td className="p-4 font-black">
                                                                         <span className="px-3 py-1 bg-purple-500/15 text-purple-300 border border-purple-500/30 rounded-xl text-xs">{grupo.cantTotal} unid. totales</span>
                                                                     </td>
                                                                     <td className="p-4">
-                                                                        <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
-                                                                            👥 {grupo.persCount} Colaborador(es)
-                                                                        </span>
+                                                                        <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">👥 {grupo.persCount} Colaborador(es)</span>
                                                                     </td>
                                                                     <td className="p-4 text-center">
-                                                                        <button 
-                                                                            onClick={() => toggleLoteExpandido(grupo.loteKey)} 
-                                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95 border border-indigo-400/20"
-                                                                        >
+                                                                        <button onClick={() => toggleLoteExpandido(grupo.loteKey)} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95 border border-indigo-400/20">
                                                                             <span>{estaExpandido ? '📂 Ocultar Detalle' : '👁️ Ver Detalle'}</span>
                                                                         </button>
                                                                     </td>
@@ -1586,7 +1973,6 @@
 
                                                             return (
                                                                 <div key={nombreColaborador} className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-2xl space-y-3">
-                                                                    {/* Cabecera del Colaborador */}
                                                                     <div className="font-black text-amber-400 text-sm flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                                                                         <div className="flex items-center gap-2.5">
                                                                             <Avatar nombre={nombreColaborador} />
@@ -1612,7 +1998,6 @@
                                                                         </div>
                                                                     </div>
 
-                                                                    {/* Lista Desplegable Consolidada por SKU */}
                                                                     {estaColabExpandido && (
                                                                         <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
                                                                             {prodsAgrupadosPorSKU.map(asigItem => {
