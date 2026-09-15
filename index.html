@@ -20,21 +20,31 @@
         ::-webkit-scrollbar-thumb:hover { background: rgba(129, 140, 248, 0.8); }
 
         @keyframes modalSpring {
-            0% { opacity: 0; transform: scale(0.9) translateY(20px); }
-            70% { transform: scale(1.02) translateY(-2px); }
+            0% { opacity: 0; transform: scale(0.95) translateY(12px); }
             100% { opacity: 1; transform: scale(1) translateY(0); }
         }
-        .animate-modal-spring { animation: modalSpring 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        .animate-modal-spring { animation: modalSpring 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
 
         @keyframes tabFade {
-            from { opacity: 0; transform: translateY(6px); }
+            from { opacity: 0; transform: translateY(4px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .animate-tab { animation: tabFade 0.2s ease-out forwards; }
 
-        .glow-box-indigo:hover { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.3); }
-        .glow-box-amber:hover { box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.3); }
-        .glow-box-purple:hover { box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.3); }
+        .glow-box-indigo { transition: all 0.3s ease; }
+        .glow-box-indigo:hover { border-color: rgba(99, 102, 241, 0.4); box-shadow: 0 8px 30px -5px rgba(99, 102, 241, 0.15); }
+        
+        .glow-box-amber { transition: all 0.3s ease; }
+        .glow-box-amber:hover { border-color: rgba(245, 158, 11, 0.4); box-shadow: 0 8px 30px -5px rgba(245, 158, 11, 0.15); }
+        
+        .glow-box-purple { transition: all 0.3s ease; }
+        .glow-box-purple:hover { border-color: rgba(168, 85, 247, 0.4); box-shadow: 0 8px 30px -5px rgba(168, 85, 247, 0.15); }
+        
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
     </style>
 </head>
 <body class="font-sans transition-colors duration-500 selection:bg-indigo-500 selection:text-white antialiased bg-[#0B0F19]">
@@ -54,9 +64,9 @@
                 <div className="relative inline-block" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
                     {children}
                     {show && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-[#0F172A]/90 text-slate-100 text-[11px] font-bold rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md whitespace-nowrap z-50 pointer-events-none transition-all">
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 bg-[#0F172A]/95 text-slate-100 text-[11px] font-bold rounded-xl shadow-2xl border border-slate-700/80 backdrop-blur-md whitespace-nowrap z-50 pointer-events-none transition-all duration-150">
                             {text}
-                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-[#0F172A]/90"></div>
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-[#0F172A]/95"></div>
                         </div>
                     )}
                 </div>
@@ -463,7 +473,6 @@
                 return fB - fA || b.id - a.id;
             });
 
-            // AGRUPACIÓN POR LOTE
             const estructurarHistorialPorLotes = (lista) => {
                 const mapaLotes = new Map();
 
@@ -486,7 +495,6 @@
                         const persUnicos = Array.from(new Set(items.map(i => i.personal_asignado)));
                         const cantTotal = items.reduce((sum, i) => sum + (Number(i.cantidad) || 0), 0);
 
-                        // Agrupar productos dentro del lote para visualización limpia
                         const productosAgrupadosMap = items.reduce((acc, current) => {
                             const pKey = current.sku;
                             if (!acc[pKey]) {
@@ -508,7 +516,6 @@
                             colaboradores: Array.from(p.colaboradores)
                         }));
 
-                        // Limpiar texto de observación quitando la etiqueta LOTE-xxx
                         let obsLoteLimpia = items[0].observaciones || 'Sin observaciones';
                         obsLoteLimpia = obsLoteLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
                         if (!obsLoteLimpia) obsLoteLimpia = 'Sin observaciones';
@@ -919,9 +926,9 @@
 
                     <div className="max-w-7xl mx-auto space-y-6">
                         {/* Cabecera Principal */}
-                        <header className={`${darkMode ? 'bg-slate-900/60 border-indigo-500/20 shadow-indigo-950/20' : 'bg-white/80 border-slate-200 shadow-slate-200/50'} p-6 md:p-8 rounded-3xl border backdrop-blur-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-2xl transition-all`}>
+                        <header className={`${darkMode ? 'glass-panel border-indigo-500/20 shadow-indigo-950/20' : 'bg-white/80 border-slate-200 shadow-slate-200/50'} p-6 md:p-8 rounded-3xl border backdrop-blur-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-2xl transition-all`}>
                             <div className="flex items-center gap-5">
-                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 flex items-center justify-center text-2xl text-white shadow-lg shadow-indigo-500/30">🏢</div>
+                                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 flex items-center justify-center text-2xl text-white shadow-lg shadow-indigo-500/25 border border-white/10">🏢</div>
                                 <div>
                                     <h1 className="text-2xl md:text-3xl font-black tracking-tight">Cordero y Asociados</h1>
                                     <p className="text-xs text-indigo-400 font-bold uppercase tracking-wider mt-0.5 flex items-center gap-2">
@@ -935,12 +942,12 @@
                             </div>
                             <div className="flex items-center gap-3">
                                 <Tooltip text={mostrarHistorial ? "Ocultar Bitácora" : "Ver Bitácora de Asignaciones"}>
-                                    <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-5 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-95 active:shadow-inner">
+                                    <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-5 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/25 cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-95 border border-indigo-400/20">
                                         📜 <span>{mostrarHistorial ? 'Ocultar Bitácora' : 'Bitácora'}</span>
                                     </button>
                                 </Tooltip>
                                 <Tooltip text="Alternar Modo Claro / Oscuro">
-                                    <button onClick={() => setDarkMode(!darkMode)} className="p-3.5 rounded-2xl font-black text-xs bg-slate-800/80 text-amber-400 border border-slate-700/80 cursor-pointer hover:bg-slate-700/80 transition-all hover:scale-[1.02] active:scale-95">
+                                    <button onClick={() => setDarkMode(!darkMode)} className="p-3.5 rounded-2xl font-black text-xs bg-slate-800/80 text-amber-400 border border-slate-700/80 cursor-pointer hover:bg-slate-700/80 transition-all hover:scale-[1.02] active:scale-95 shadow-md">
                                         {darkMode ? '☀️' : '🌙'}
                                     </button>
                                 </Tooltip>
@@ -949,7 +956,7 @@
 
                         {/* Tarjetas de Métricas Interactivas */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('total'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80 hover:border-indigo-500/50' : 'bg-white/80 border-slate-200 hover:border-indigo-400'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer transition-all duration-300 hover:-translate-y-1 glow-box-indigo flex items-center justify-between group`}>
+                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('total'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer glow-box-indigo flex items-center justify-between group`}>
                                 <div className="space-y-2">
                                     <span className="block text-xs font-black uppercase tracking-wider text-slate-400">Estado del Stock</span>
                                     <div className="flex items-baseline gap-2">
@@ -960,37 +967,37 @@
                                         <span className="text-xs font-bold text-slate-400">Unid.</span>
                                     </div>
                                     <div className="flex flex-wrap gap-1.5 text-[11px] font-bold pt-1">
-                                        <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-xl border border-emerald-500/20">🟢 {unidadesSinAsignar} Libres</span>
-                                        <span className="text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-xl border border-amber-500/20">🏷️ {unidadesEnUso} Uso</span>
-                                        <span className="text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-xl border border-rose-500/20">🚫 {unidadesDeshabilitadas} Deshab.</span>
+                                        <span className="text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-xl border border-emerald-500/20">🟢 {unidadesSinAsignar} Libres</span>
+                                        <span className="text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-xl border border-amber-500/20">🏷️ {unidadesEnUso} Uso</span>
+                                        <span className="text-rose-400 bg-rose-500/10 px-2.5 py-0.5 rounded-xl border border-rose-500/20">🚫 {unidadesDeshabilitadas} Deshab.</span>
                                     </div>
                                 </div>
-                                <div className="p-4 rounded-2xl bg-indigo-950/80 border border-indigo-800/50 text-indigo-400 text-2xl shadow-inner">📦</div>
+                                <div className="p-4 rounded-2xl bg-indigo-950/80 border border-indigo-800/50 text-indigo-400 text-2xl shadow-inner group-hover:border-indigo-500/50 transition-colors">📦</div>
                             </div>
 
-                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('personal'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80 hover:border-amber-500/50' : 'bg-white/80 border-slate-200 hover:border-amber-400'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer transition-all duration-300 hover:-translate-y-1 glow-box-amber flex items-center justify-between group`}>
+                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('personal'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer glow-box-amber flex items-center justify-between group`}>
                                 <div>
                                     <span className="block text-xs font-black uppercase tracking-wider mb-1 text-slate-400">Total Personal</span>
                                     <span className="text-4xl font-black text-amber-400 group-hover:scale-105 transition-transform">{personalList.length}</span>
                                 </div>
-                                <div className="p-4 rounded-2xl bg-amber-950/80 border border-amber-800/50 text-amber-400 text-2xl shadow-inner">👥</div>
+                                <div className="p-4 rounded-2xl bg-amber-950/80 border border-amber-800/50 text-amber-400 text-2xl shadow-inner group-hover:border-amber-500/50 transition-colors">👥</div>
                             </div>
 
-                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('asignaciones'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80 hover:border-purple-500/50' : 'bg-white/80 border-slate-200 hover:border-purple-400'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer transition-all duration-300 hover:-translate-y-1 glow-box-purple flex items-center justify-between group`}>
+                            <div onClick={() => { setModalAbierto(true); setSeccionSeleccionada('asignaciones'); }} className={`${darkMode ? 'bg-slate-900/50 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-6 rounded-3xl border backdrop-blur-md shadow-xl cursor-pointer glow-box-purple flex items-center justify-between group`}>
                                 <div>
                                     <span className="block text-xs font-black uppercase tracking-wider mb-1 text-slate-400">Asignaciones</span>
                                     <span className="text-4xl font-black text-purple-400 group-hover:scale-105 transition-transform">{listaHistorialAsignaciones.length}</span>
                                 </div>
-                                <div className="p-4 rounded-2xl bg-purple-950/80 border border-purple-800/50 text-purple-400 text-2xl shadow-inner">🏷️</div>
+                                <div className="p-4 rounded-2xl bg-purple-950/80 border border-purple-800/50 text-purple-400 text-2xl shadow-inner group-hover:border-purple-500/50 transition-colors">🏷️</div>
                             </div>
                         </div>
 
                         {/* BARRA DE NAVEGACIÓN DE PESTAÑAS */}
                         <div className={`flex gap-3 ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-2 rounded-3xl border backdrop-blur-xl shadow-xl overflow-x-auto`}>
-                            <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>🔗 Asignar Productos</button>
-                            <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'productos' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>📦 Gestionar e Importar Stock</button>
-                            <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'deshabilitados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
-                            <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>👥 Agregar Personal</button>
+                            <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🔗 Asignar Productos</button>
+                            <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'productos' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>📦 Gestionar e Importar Stock</button>
+                            <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'deshabilitados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
+                            <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 border border-indigo-400/20' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'}`}>👥 Agregar Personal</button>
                         </div>
 
                         {/* PESTAÑA: ASIGNAR PRODUCTOS */}
@@ -1044,7 +1051,7 @@
                                                                             max={p.cantidad} 
                                                                             value={prodSeleccionadosMap[p.id]} 
                                                                             onChange={e => updateCantProductoSeleccionado(p.id, e.target.value)} 
-                                                                            className="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
+                                                                            className="w-14 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center focus:border-indigo-500 outline-none" 
                                                                         />
                                                                     </div>
                                                                 )}
@@ -1092,7 +1099,7 @@
                                             <input type="text" placeholder="Ej. Entrega para sede principal" value={obsAsignacion} onChange={e => setObsAsignacion(e.target.value)} className={`w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none transition-all ${darkMode ? 'bg-slate-800/80 border-slate-700 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-300'}`} />
                                         </div>
 
-                                        <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold py-4 rounded-2xl shadow-xl shadow-indigo-600/30 cursor-pointer text-sm transition-all hover:scale-[1.01] active:translate-y-0.5 active:shadow-inner">
+                                        <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold py-4 rounded-2xl shadow-xl shadow-indigo-600/30 cursor-pointer text-sm transition-all hover:scale-[1.005] active:translate-y-0.5 active:shadow-inner border border-indigo-400/20">
                                             🚀 Confirmar Asignación ({Object.keys(prodSeleccionadosMap).length} Productos ➔ {personalSeleccionados.length} Personales)
                                         </button>
                                     </div>
@@ -1111,7 +1118,7 @@
                                             </h2>
                                             <p className={`text-xs mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Exporta el inventario para modificar cantidades o campos y sobreescribir al importar.</p>
                                         </div>
-                                        <button onClick={descargarInventarioCSV} className="px-5 py-3 rounded-2xl font-extrabold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all active:translate-y-0.5">
+                                        <button onClick={descargarInventarioCSV} className="px-5 py-3 rounded-2xl font-extrabold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all active:translate-y-0.5 border border-indigo-400/20">
                                             <span>📥</span> Exportar Inventario CSV
                                         </button>
                                     </div>
@@ -1145,7 +1152,7 @@
                                                                 <option value="">-- Categ. --</option>
                                                                 {categoriasList.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                                                             </select>
-                                                            <button type="button" onClick={() => setCreandoCategoria(true)} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-extrabold whitespace-nowrap cursor-pointer transition-all active:translate-y-0.5">Gestionar</button>
+                                                            <button type="button" onClick={() => setCreandoCategoria(true)} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-extrabold whitespace-nowrap cursor-pointer transition-all active:translate-y-0.5 border border-indigo-400/20">Gestionar</button>
                                                         </div>
                                                     ) : (
                                                         <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
@@ -1179,7 +1186,7 @@
                                                 </div>
                                             </form>
                                         </div>
-                                        <button type="submit" form="form-nuevo-prod" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer mt-4 transition-all active:translate-y-0.5">Guardar Producto</button>
+                                        <button type="submit" form="form-nuevo-prod" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer mt-4 transition-all active:translate-y-0.5 border border-indigo-400/20">Guardar Producto</button>
                                     </section>
 
                                     <section className={`${darkMode ? 'bg-slate-900/60 border-slate-800/80 text-slate-100' : 'bg-white/80 border-slate-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl flex flex-col justify-between`}>
@@ -1207,7 +1214,7 @@
                                                 </div>
                                             </form>
                                         </div>
-                                        <button type="submit" form="form-restock" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/30 cursor-pointer mt-4 active:translate-y-0.5">Sumar Stock</button>
+                                        <button type="submit" form="form-restock" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-emerald-600/30 cursor-pointer mt-4 active:translate-y-0.5 border border-emerald-400/20">Sumar Stock</button>
                                     </section>
 
                                     <section className={`${darkMode ? 'bg-slate-900/60 border-slate-800/80 text-slate-100' : 'bg-white/80 border-slate-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl flex flex-col justify-between`}>
@@ -1232,7 +1239,7 @@
                                                 )}
                                             </form>
                                         </div>
-                                        <button type="submit" form="form-deshabilitar" className="w-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-rose-600/30 cursor-pointer mt-4 active:translate-y-0.5">Deshabilitar Producto</button>
+                                        <button type="submit" form="form-deshabilitar" className="w-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-3.5 rounded-2xl transition-all shadow-lg shadow-rose-600/30 cursor-pointer mt-4 active:translate-y-0.5 border border-rose-400/20">Deshabilitar Producto</button>
                                     </section>
                                 </div>
                             </div>
@@ -1287,7 +1294,7 @@
                                                     <option value="">-- Seleccionar Cargo --</option>
                                                     {cargosList.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                                                 </select>
-                                                <button type="button" onClick={() => setCreandoCargo(true)} className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-extrabold whitespace-nowrap cursor-pointer transition-all active:translate-y-0.5">Gestionar Cargos</button>
+                                                <button type="button" onClick={() => setCreandoCargo(true)} className="px-5 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-extrabold whitespace-nowrap cursor-pointer transition-all active:translate-y-0.5 border border-indigo-400/20">Gestionar Cargos</button>
                                             </div>
                                         ) : (
                                             <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
@@ -1310,7 +1317,7 @@
                                             </div>
                                         )}
                                     </div>
-                                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer transition-all active:translate-y-0.5">Guardar Colaborador</button>
+                                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3.5 rounded-2xl shadow-lg shadow-indigo-600/30 cursor-pointer transition-all active:translate-y-0.5 border border-indigo-400/20">Guardar Colaborador</button>
                                 </form>
                             </section>
                         )}
@@ -1325,15 +1332,15 @@
                                             <p className="text-xs text-slate-400">Historial de asignaciones con vista previa agrupada por producto</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
-                                            <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
+                                            <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" />
                                         </div>
                                     </div>
 
                                     <div className="flex items-center gap-2 overflow-x-auto pt-1">
                                         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Filtro Rápido:</span>
-                                        <button onClick={() => setFiltroCategoria('TODAS')} className={`px-3 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === 'TODAS' ? 'bg-indigo-600 text-white' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>Todas</button>
+                                        <button onClick={() => setFiltroCategoria('TODAS')} className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === 'TODAS' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>Todas</button>
                                         {categoriasList.map(cat => (
-                                            <button key={cat.id} onClick={() => setFiltroCategoria(cat.nombre)} className={`px-3 py-1 rounded-xl text-[11px] font-extrabold cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === cat.nombre ? 'bg-indigo-600 text-white' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>{cat.nombre}</button>
+                                            <button key={cat.id} onClick={() => setFiltroCategoria(cat.nombre)} className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold cursor-pointer whitespace-nowrap transition-all ${filtroCategoria === cat.nombre ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20' : 'bg-slate-800/80 text-slate-400 hover:text-white'}`}>{cat.nombre}</button>
                                         ))}
                                     </div>
                                 </div>
@@ -1362,26 +1369,26 @@
                                                     if (grupo.esLote) {
                                                         return (
                                                             <React.Fragment key={grupo.loteKey || index}>
-                                                                <tr className="bg-indigo-950/30 hover:bg-indigo-950/50 transition-colors border-l-4 border-l-indigo-500">
+                                                                <tr className="bg-indigo-950/20 hover:bg-indigo-950/40 transition-colors border-l-4 border-l-indigo-500">
                                                                     <td className="p-4 whitespace-nowrap">
                                                                         <div className="flex flex-col gap-1">
-                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/50 border border-indigo-700/60 text-xs font-bold text-indigo-200">
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/40 border border-indigo-700/50 text-xs font-bold text-indigo-200">
                                                                                 📅 {fechaStr}
                                                                             </span>
-                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-indigo-300">
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900/80 text-[10px] font-mono font-semibold text-indigo-300 border border-slate-800/60">
                                                                                 ⏰ {horaStr}
                                                                             </span>
                                                                         </div>
                                                                     </td>
                                                                     <td className="p-4 font-mono font-black text-purple-400">
-                                                                        <span className="bg-purple-950 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs">🚀 ASIGNACIÓN</span>
+                                                                        <span className="bg-purple-950/80 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs shadow-sm">🚀 ASIGNACIÓN</span>
                                                                     </td>
                                                                     <td className="p-4 text-slate-400 font-bold">Varias Categ.</td>
                                                                     <td className="p-4 font-extrabold text-indigo-300">
                                                                         {grupo.prodsCount} Producto(s)
                                                                     </td>
                                                                     <td className="p-4 font-black">
-                                                                        <span className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-xl text-xs">{grupo.cantTotal} unid. totales</span>
+                                                                        <span className="px-3 py-1 bg-purple-500/15 text-purple-300 border border-purple-500/30 rounded-xl text-xs">{grupo.cantTotal} unid. totales</span>
                                                                     </td>
                                                                     <td className="p-4">
                                                                         <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
@@ -1391,7 +1398,7 @@
                                                                     <td className="p-4 text-center">
                                                                         <button 
                                                                             onClick={() => toggleLoteExpandido(grupo.loteKey)} 
-                                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95"
+                                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95 border border-indigo-400/20"
                                                                         >
                                                                             <span>{estaExpandido ? '📂 Ocultar Detalle' : '👁️ Ver Detalle'}</span>
                                                                         </button>
@@ -1410,18 +1417,18 @@
                                                                                     {grupo.productosAgrupadosLote.map((prodAgrup, pIdx) => (
                                                                                         <div key={pIdx} className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 flex flex-col md:flex-row justify-between md:items-center text-xs gap-3">
                                                                                             <div className="flex items-center gap-3">
-                                                                                                <span className="font-mono font-black text-indigo-400 bg-indigo-950 px-2.5 py-1 rounded-lg border border-indigo-800/80">{prodAgrup.sku}</span>
+                                                                                                <span className="font-mono font-black text-indigo-400 bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-800/80">{prodAgrup.sku}</span>
                                                                                                 <div>
                                                                                                     <div className="font-extrabold text-white text-sm">{prodAgrup.producto}</div>
                                                                                                     <div className="text-slate-400 text-[11px] font-semibold">Categoría: {prodAgrup.categoria}</div>
                                                                                                 </div>
                                                                                             </div>
                                                                                             <div className="flex items-center gap-3 flex-wrap">
-                                                                                                <span className="bg-indigo-950 text-indigo-300 px-3 py-1 rounded-xl border border-indigo-800 font-black text-xs">{prodAgrup.cantidadTotal} unid. asignadas</span>
+                                                                                                <span className="bg-indigo-950/80 text-indigo-300 px-3 py-1 rounded-xl border border-indigo-800/80 font-black text-xs">{prodAgrup.cantidadTotal} unid. asignadas</span>
                                                                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                                                                     <span className="text-[11px] text-slate-400 font-bold">A:</span>
                                                                                                     {prodAgrup.colaboradores.map((colab, cIdx) => (
-                                                                                                        <div key={cIdx} className="inline-flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2.5 py-1 rounded-xl border border-amber-800 font-bold text-[11px]">
+                                                                                                        <div key={cIdx} className="inline-flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2.5 py-1 rounded-xl border border-amber-800/80 font-bold text-[11px]">
                                                                                                             <Avatar nombre={colab} />
                                                                                                             <span>{colab}</span>
                                                                                                         </div>
@@ -1480,7 +1487,7 @@
                                 <div className={`animate-modal-spring ${darkMode ? 'bg-[#0B0F19]/95 border-indigo-500/30 text-white' : 'bg-white border-slate-200 text-slate-800'} rounded-3xl border max-w-2xl w-full p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl shadow-indigo-950/50`}>
                                     <div className="flex justify-between items-center border-b border-slate-800/80 pb-5">
                                         <h3 className="text-xl font-black">📋 Detalle del Inventario Global</h3>
-                                        <button onClick={() => { setModalAbierto(false); setSeccionSeleccionada(null); }} className="text-xs font-black px-4 py-2 bg-slate-800 text-slate-300 rounded-xl cursor-pointer hover:bg-slate-700 transition-all active:translate-y-0.5">✕ Cerrar</button>
+                                        <button onClick={() => { setModalAbierto(false); setSeccionSeleccionada(null); }} className="text-xs font-black px-4 py-2 bg-slate-800 text-slate-300 rounded-xl cursor-pointer hover:bg-slate-700 transition-all active:translate-y-0.5 border border-slate-700/50">✕ Cerrar</button>
                                     </div>
                                     {seccionSeleccionada && (
                                         <div className="bg-slate-950/80 border border-slate-800/80 p-5 rounded-2xl space-y-4">
@@ -1531,7 +1538,7 @@
                                                                         <div className="flex items-center gap-2">
                                                                             <button 
                                                                                 onClick={() => toggleColaboradorExpandido(nombreColaborador)}
-                                                                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-all active:translate-y-0.5"
+                                                                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-all active:translate-y-0.5 border border-indigo-400/20"
                                                                             >
                                                                                 {estaColabExpandido ? '📂 Ocultar Equipos' : '👁️ Ver Equipos'}
                                                                             </button>
@@ -1594,7 +1601,7 @@
                                                                                                     placeholder="Escribe la observación..." 
                                                                                                     value={nuevaObsTexto} 
                                                                                                     onChange={e => setNuevaObsTexto(e.target.value)} 
-                                                                                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
+                                                                                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none focus:border-indigo-500 transition-colors"
                                                                                                 />
                                                                                                 <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
                                                                                                 <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
@@ -1611,7 +1618,7 @@
                                                                                                         max={asigItem.cantidad} 
                                                                                                         value={cantDevolver} 
                                                                                                         onChange={e => setCantDevolver(e.target.value)} 
-                                                                                                        className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
+                                                                                                        className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center focus:border-indigo-500 outline-none" 
                                                                                                     />
                                                                                                     <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
                                                                                                 </div>
