@@ -101,8 +101,6 @@
             const [seccionSeleccionada, setSeccionSeleccionada] = useState(null);
             const [tabActiva, setTabActiva] = useState('asignar');
             const [mostrarHistorial, setMostrarHistorial] = useState(false);
-            const [paginaActual, setPaginaActual] = useState(1);
-            const itemsPorPagina = 6;
             const [darkMode, setDarkMode] = useState(true);
             const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
@@ -472,8 +470,6 @@
 
                 return coincideTexto && coincideCat;
             });
-
-            const productosPaginados = historialFiltrado.slice((paginaActual - 1) * itemsPorPagina, paginaActual * itemsPorPagina);
 
             const asignacionesPorPersonalMap = productosActivos
                 .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
@@ -1175,14 +1171,14 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA E HISTORIAL COMPLETO */}
+                        {/* BITÁCORA FIJA CON SCROLL CONTINUO Y SIN PAGINACIÓN FIJA */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Registro cronológico estructurado de asignaciones activas</p>
+                                            <p className="text-xs text-slate-400">Mostrando {historialFiltrado.length} asignaciones registradas (Scroll vertical activo)</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
@@ -1198,7 +1194,7 @@
                                     </div>
                                 </div>
 
-                                <div className="overflow-x-auto max-h-96">
+                                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-950/90 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
@@ -1212,10 +1208,10 @@
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/60 text-sm">
-                                            {productosPaginados.length === 0 ? (
+                                            {historialFiltrado.length === 0 ? (
                                                 <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones activas para mostrar.</td></tr>
                                             ) : (
-                                                productosPaginados.map(item => {
+                                                historialFiltrado.map(item => {
                                                     const { fechaStr, horaStr } = formatearFechaClean(item);
                                                     return (
                                                         <tr key={item.id} className="hover:bg-indigo-950/20 transition-colors">
