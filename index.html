@@ -164,26 +164,30 @@
                 fetchData();
             }, []);
 
-            const formatearFecha = (item) => {
+            // FORMATO LIMPIO, ORDENADO Y ELEGANTE DE FECHA Y HORA
+            const formatearFechaClean = (item) => {
                 const rawFecha = item.created_at;
-                if (rawFecha) {
-                    const fecha = new Date(rawFecha);
-                    if (!isNaN(fecha.getTime())) {
-                        return fecha.toLocaleString('es-PE', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: true
-                        });
-                    }
-                }
-                return 'Registro Previo';
+                if (!rawFecha) return { fechaStr: 'S/F', horaStr: '--:--' };
+                const fecha = new Date(rawFecha);
+                if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
+
+                const fechaStr = fecha.toLocaleDateString('es-PE', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric'
+                });
+
+                const horaStr = fecha.toLocaleTimeString('es-PE', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                });
+
+                return { fechaStr, horaStr };
             };
 
             const descargarInventarioCSV = () => {
-                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Asignacion'];
+                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Registro'];
                 let filas = [];
 
                 if (productos.length > 0) {
@@ -447,13 +451,16 @@
             const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
             const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
 
-            const listaHistorialAsignaciones = productosActivos
-                .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
-                .sort((a, b) => {
-                    const fA = new Date(a.created_at || 0).getTime();
-                    const fB = new Date(b.created_at || 0).getTime();
-                    return fB - fA || b.id - a.id;
-                });
+            // FILTRADO DE ASIGNACIONES ACTIVAS CON EVALUACIÓN TRACED DE CAMPOS
+            const listaHistorialAsignaciones = productos.filter(p => {
+                const tienePersonal = p.personal_asignado && p.personal_asignado.trim() !== '';
+                const esActivo = p.activo !== false;
+                return tienePersonal && esActivo;
+            }).sort((a, b) => {
+                const fA = new Date(a.created_at || 0).getTime();
+                const fB = new Date(b.created_at || 0).getTime();
+                return fB - fA || b.id - a.id;
+            });
 
             const historialFiltrado = listaHistorialAsignaciones.filter(item => {
                 const coincideTexto = (item.producto && item.producto.toLowerCase().includes(busqueda.toLowerCase())) ||
@@ -495,7 +502,7 @@
                     fetchData();
                     mostrarToast(`Producto registrado. SKU: ${nuevoSKU}`);
                 } else {
-                    mostrarToast(`Error de BD: ${error.message}`, 'error');
+                    mostrarToast(`Error BD: ${error.message}`, 'error');
                 }
             };
 
@@ -605,7 +612,7 @@
                 );
             };
 
-            // INSERCIÓN DE ASIGNACIÓN COMPATIBLE CON LA ESTRUCTURA NATIVA DE SUPABASE
+            // PROCESO ROBUSTO DE ASIGNACIÓN MULTIPLE
             const handleConfirmarAsignacionMultiple = async (e) => {
                 e.preventDefault();
                 const prodIds = Object.keys(prodSeleccionadosMap);
@@ -652,8 +659,8 @@
                             }]);
 
                             if (insErr) {
-                                console.error("Error al insertar asignacion:", insErr);
-                                mostrarToast(`Error de BD al asignar a ${persNombre}: ${insErr.message}`, 'error');
+                                console.error("Error BD Insert:", insErr);
+                                mostrarToast(`Fallo en BD: ${insErr.message}`, 'error');
                                 return;
                             }
                             totalAsignacionesCalculadas++;
@@ -680,10 +687,10 @@
                     setPersonalSeleccionados([]);
                     setObsAsignacion('');
                     await fetchData();
-                    mostrarToast(`¡Éxito! Se registraron ${totalAsignacionesCalculadas} asignaciones correctamente.`);
+                    mostrarToast(`¡Éxito! Se guardaron ${totalAsignacionesCalculadas} asignaciones en la base de datos.`);
                 } catch (err) {
                     console.error(err);
-                    mostrarToast('Error en el proceso de asignación múltiple.', 'error');
+                    mostrarToast('Error durante el guardado de asignaciones.', 'error');
                 }
             };
 
@@ -1191,14 +1198,14 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA FIJA Y REGISTRO CRONOLÓGICO */}
+                        {/* BITÁCORA FIJA CON DISEÑO ORDENADO Y BADGES DE FECHA Y HORA */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Registro de asignaciones sincronizadas con Supabase</p>
+                                            <p className="text-xs text-slate-400">Registro cronológico estructurado de asignaciones activas</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
@@ -1218,7 +1225,7 @@
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-950/90 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
-                                                <th className="p-4">Fecha y Hora de Asignación</th>
+                                                <th className="p-4">Fecha / Hora</th>
                                                 <th className="p-4">SKU</th>
                                                 <th className="p-4">Categoría</th>
                                                 <th className="p-4">Producto</th>
@@ -1229,28 +1236,38 @@
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/60 text-sm">
                                             {productosPaginados.length === 0 ? (
-                                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones para mostrar.</td></tr>
+                                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones activas para mostrar.</td></tr>
                                             ) : (
-                                                productosPaginados.map(item => (
-                                                    <tr key={item.id} className="hover:bg-indigo-950/20 transition-colors">
-                                                        <td className="p-4 text-xs font-semibold text-slate-400 whitespace-nowrap">
-                                                            📅 {formatearFecha(item)}
-                                                        </td>
-                                                        <td className="p-4 font-mono font-black text-indigo-400">{item.sku}</td>
-                                                        <td className="p-4 text-slate-400">{item.categoria}</td>
-                                                        <td className="p-4 font-bold text-white">{item.producto}</td>
-                                                        <td className="p-4 font-black">
-                                                            <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs">{item.cantidad} unid.</span>
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
-                                                                <Avatar nombre={item.personal_asignado} />
-                                                                <span>{item.personal_asignado}</span>
-                                                            </div>
-                                                        </td>
-                                                        <td className="p-4 text-xs text-slate-400">{item.observaciones || '-'}</td>
-                                                    </tr>
-                                                ))
+                                                productosPaginados.map(item => {
+                                                    const { fechaStr, horaStr } = formatearFechaClean(item);
+                                                    return (
+                                                        <tr key={item.id} className="hover:bg-indigo-950/20 transition-colors">
+                                                            <td className="p-4 whitespace-nowrap">
+                                                                <div className="flex flex-col gap-1">
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-bold text-slate-200">
+                                                                        📅 {fechaStr}
+                                                                    </span>
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-slate-400">
+                                                                        ⏰ {horaStr}
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="p-4 font-mono font-black text-indigo-400">{item.sku}</td>
+                                                            <td className="p-4 text-slate-400">{item.categoria}</td>
+                                                            <td className="p-4 font-bold text-white">{item.producto}</td>
+                                                            <td className="p-4 font-black">
+                                                                <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs">{item.cantidad} unid.</span>
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
+                                                                    <Avatar nombre={item.personal_asignado} />
+                                                                    <span>{item.personal_asignado}</span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="p-4 text-xs text-slate-400">{item.observaciones || '-'}</td>
+                                                        </tr>
+                                                    );
+                                                })
                                             )}
                                         </tbody>
                                     </table>
@@ -1307,74 +1324,79 @@
                                                                 </div>
 
                                                                 <div className="space-y-2.5 pl-2">
-                                                                    {prodsAsignados.map(asigItem => (
-                                                                        <div key={asigItem.id} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
-                                                                            <div className="flex justify-between items-start gap-2">
-                                                                                <div>
-                                                                                    <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
-                                                                                    <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                                                                                        Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
+                                                                    {prodsAsignados.map(asigItem => {
+                                                                        const { fechaStr, horaStr } = formatearFechaClean(asigItem);
+                                                                        return (
+                                                                            <div key={asigItem.id} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
+                                                                                <div className="flex justify-between items-start gap-2">
+                                                                                    <div>
+                                                                                        <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
+                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                                                                            Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
+                                                                                        </div>
+                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-2">
+                                                                                            <span>Asignado el:</span>
+                                                                                            <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-200 font-bold">📅 {fechaStr}</span>
+                                                                                            <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 font-mono">⏰ {horaStr}</span>
+                                                                                        </div>
+                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-1">
+                                                                                            Obs: <span className="text-slate-300 font-normal">{asigItem.observaciones || 'Sin observaciones'}</span>
+                                                                                        </div>
                                                                                     </div>
-                                                                                    <div className="text-[11px] text-slate-500 font-semibold mt-0.5">
-                                                                                        Fecha Asignada: {formatearFecha(asigItem)}
-                                                                                    </div>
-                                                                                    <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                                                                                        Obs: <span className="text-slate-300 font-normal">{asigItem.observaciones || 'Sin observaciones'}</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                                
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <button 
-                                                                                        onClick={() => { setEditandoObsKey(asigItem.id); setNuevaObsTexto(asigItem.observaciones || ''); }} 
-                                                                                        className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
-                                                                                    >
-                                                                                        ✎ Editar Obs.
-                                                                                    </button>
-                                                                                    <button 
-                                                                                        onClick={() => { setDevolviendoKey(asigItem.id); setCantDevolver(1); }} 
-                                                                                        className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
-                                                                                    >
-                                                                                        Devolver
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-
-                                                                            {editandoObsKey === asigItem.id && (
-                                                                                <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
-                                                                                    <input 
-                                                                                        type="text" 
-                                                                                        placeholder="Escribe la observación..." 
-                                                                                        value={nuevaObsTexto} 
-                                                                                        onChange={e => setNuevaObsTexto(e.target.value)} 
-                                                                                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
-                                                                                    />
-                                                                                    <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
-                                                                                    <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
-                                                                                </div>
-                                                                            )}
-
-                                                                            {devolviendoKey === asigItem.id && (
-                                                                                <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                                                                                    
                                                                                     <div className="flex items-center gap-2">
-                                                                                        <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
+                                                                                        <button 
+                                                                                            onClick={() => { setEditandoObsKey(asigItem.id); setNuevaObsTexto(asigItem.observaciones || ''); }} 
+                                                                                            className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
+                                                                                        >
+                                                                                            ✎ Editar Obs.
+                                                                                        </button>
+                                                                                        <button 
+                                                                                            onClick={() => { setDevolviendoKey(asigItem.id); setCantDevolver(1); }} 
+                                                                                            className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
+                                                                                        >
+                                                                                            Devolver
+                                                                                        </button>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                {editandoObsKey === asigItem.id && (
+                                                                                    <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
                                                                                         <input 
-                                                                                            type="number" 
-                                                                                            min="1" 
-                                                                                            max={asigItem.cantidad} 
-                                                                                            value={cantDevolver} 
-                                                                                            onChange={e => setCantDevolver(e.target.value)} 
-                                                                                            className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
+                                                                                            type="text" 
+                                                                                            placeholder="Escribe la observación..." 
+                                                                                            value={nuevaObsTexto} 
+                                                                                            onChange={e => setNuevaObsTexto(e.target.value)} 
+                                                                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
                                                                                         />
-                                                                                        <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
+                                                                                        <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
+                                                                                        <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
                                                                                     </div>
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <button onClick={() => handleEjecutarDevolucionAgrupada(asigItem)} className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black hover:bg-emerald-700 cursor-pointer">Confirmar</button>
-                                                                                        <button onClick={() => setDevolviendoKey(null)} className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
+                                                                                )}
+
+                                                                                {devolviendoKey === asigItem.id && (
+                                                                                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
+                                                                                            <input 
+                                                                                                type="number" 
+                                                                                                min="1" 
+                                                                                                max={asigItem.cantidad} 
+                                                                                                value={cantDevolver} 
+                                                                                                onChange={e => setCantDevolver(e.target.value)} 
+                                                                                                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
+                                                                                            />
+                                                                                            <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
+                                                                                        </div>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <button onClick={() => handleEjecutarDevolucionAgrupada(asigItem)} className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black hover:bg-emerald-700 cursor-pointer">Confirmar</button>
+                                                                                            <button onClick={() => setDevolviendoKey(null)} className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
+                                                                                        </div>
                                                                                     </div>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    ))}
+                                                                                )}
+                                                                            </div>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             </div>
                                                         ))
