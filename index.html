@@ -100,9 +100,11 @@
             const [modalAbierto, setModalAbierto] = useState(false);
             const [seccionSeleccionada, setSeccionSeleccionada] = useState(null);
             const [tabActiva, setTabActiva] = useState('asignar');
-            const [mostrarHistorial, setMostrarHistorial] = useState(false);
+            const [mostrarHistorial, setMostrarHistorial] = useState(true);
             const [darkMode, setDarkMode] = useState(true);
             const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+            const [lotesExpandidosMap, setLotesExpandidosMap] = useState({});
 
             const [devolviendoKey, setDevolviendoKey] = useState(null);
             const [cantDevolver, setCantDevolver] = useState(1);
@@ -460,16 +462,83 @@
                 return fB - fA || b.id - a.id;
             });
 
-            const historialFiltrado = listaHistorialAsignaciones.filter(item => {
-                const coincideTexto = (item.producto && item.producto.toLowerCase().includes(busqueda.toLowerCase())) ||
-                    (item.personal_asignado && item.personal_asignado.toLowerCase().includes(busqueda.toLowerCase())) ||
-                    (item.categoria && item.categoria.toLowerCase().includes(busqueda.toLowerCase())) ||
-                    (item.sku && item.sku.toLowerCase().includes(busqueda.toLowerCase()));
+            // LÓGICA DE AGRUPACIÓN POR LOTE O MINUTO EXACTO
+            const estructurarHistorialPorLotes = (lista) => {
+                const mapaLotes = new Map();
 
-                const coincideCat = filtroCategoria === 'TODAS' || (item.categoria && item.categoria.toUpperCase() === filtroCategoria.toUpperCase());
+                lista.forEach(item => {
+                    const fechaObj = new Date(item.fecha_asignacion || item.created_at || 0);
+                    const tiempoKey = item.observaciones && item.observaciones.includes('LOTE-') 
+                        ? item.observaciones.match(/LOTE-\d+/)?.[0] || fechaObj.toISOString().slice(0, 16)
+                        : fechaObj.toISOString().slice(0, 16);
 
-                return coincideTexto && coincideCat;
+                    if (!mapaLotes.has(tiempoKey)) {
+                        mapaLotes.set(tiempoKey, []);
+                    }
+                    mapaLotes.get(tiempoKey).push(item);
+                });
+
+                const lotesProcesados = [];
+                mapaLotes.forEach((items, key) => {
+                    if (items.length > 1) {
+                        const prodsUnicos = Array.from(new Set(items.map(i => i.producto)));
+                        const persUnicos = Array.from(new Set(items.map(i => i.personal_asignado)));
+                        const cantTotal = items.reduce((sum, i) => sum + (Number(i.cantidad) || 0), 0);
+
+                        lotesProcesados.push({
+                            esLote: true,
+                            loteKey: key,
+                            fecha_asignacion: items[0].fecha_asignacion || items[0].created_at,
+                            totalItems: items.length,
+                            prodsCount: prodsUnicos.length,
+                            persCount: persUnicos.length,
+                            cantTotal,
+                            items,
+                            observaciones: items[0].observaciones || 'Asignación múltiple'
+                        });
+                    } else {
+                        lotesProcesados.push({
+                            esLote: false,
+                            loteKey: key,
+                            ...items[0]
+                        });
+                    }
+                });
+
+                return lotesProcesados;
+            };
+
+            const historialAgrupado = estructurarHistorialPorLotes(listaHistorialAsignaciones);
+
+            const historialFiltrado = historialAgrupado.filter(grupo => {
+                if (grupo.esLote) {
+                    const coincideEnItems = grupo.items.some(item => {
+                        return (item.producto && item.producto.toLowerCase().includes(busqueda.toLowerCase())) ||
+                            (item.personal_asignado && item.personal_asignado.toLowerCase().includes(busqueda.toLowerCase())) ||
+                            (item.categoria && item.categoria.toLowerCase().includes(busqueda.toLowerCase())) ||
+                            (item.sku && item.sku.toLowerCase().includes(busqueda.toLowerCase()));
+                    });
+
+                    const coincideCat = filtroCategoria === 'TODAS' || grupo.items.some(i => i.categoria && i.categoria.toUpperCase() === filtroCategoria.toUpperCase());
+                    return coincideEnItems && coincideCat;
+                } else {
+                    const coincideTexto = (grupo.producto && grupo.producto.toLowerCase().includes(busqueda.toLowerCase())) ||
+                        (grupo.personal_asignado && grupo.personal_asignado.toLowerCase().includes(busqueda.toLowerCase())) ||
+                        (grupo.categoria && grupo.categoria.toLowerCase().includes(busqueda.toLowerCase())) ||
+                        (grupo.sku && grupo.sku.toLowerCase().includes(busqueda.toLowerCase()));
+
+                    const coincideCat = filtroCategoria === 'TODAS' || (grupo.categoria && grupo.categoria.toUpperCase() === filtroCategoria.toUpperCase());
+
+                    return coincideTexto && coincideCat;
+                }
             });
+
+            const toggleLoteExpandido = (loteKey) => {
+                setLotesExpandidosMap(prev => ({
+                    ...prev,
+                    [loteKey]: !prev[loteKey]
+                }));
+            };
 
             const asignacionesPorPersonalMap = productosActivos
                 .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
@@ -621,6 +690,9 @@
 
                 try {
                     const timestampActualISO = new Date().toISOString();
+                    const tagLote = `LOTE-${Date.now()}`;
+                    const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación Múltiple (${tagLote})`;
+
                     for (const idProd of prodIds) {
                         const prodOriginal = productosLibresList.find(p => p.id == idProd);
                         if (!prodOriginal) continue;
@@ -632,7 +704,7 @@
                                 categoria: prodOriginal.categoria,
                                 producto: prodOriginal.producto,
                                 cantidad: cantPorPersona,
-                                observaciones: obsAsignacion || '',
+                                observaciones: obsConLote,
                                 personal_asignado: persNombre,
                                 activo: true,
                                 fecha_asignacion: timestampActualISO
@@ -659,7 +731,7 @@
                     setPersonalSeleccionados([]);
                     setObsAsignacion('');
                     await fetchData();
-                    mostrarToast('¡Asignación guardada con éxito!');
+                    mostrarToast('¡Asignación múltiple guardada como bloque!');
                 } catch (err) {
                     console.error(err);
                     mostrarToast('Error al procesar asignación.', 'error');
@@ -790,9 +862,9 @@
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
-                                <Tooltip text={mostrarHistorial ? "Ocultar Historial" : "Ver Historial de Asignaciones"}>
+                                <Tooltip text={mostrarHistorial ? "Ocultar Bitácora" : "Ver Bitácora de Asignaciones"}>
                                     <button onClick={() => setMostrarHistorial(!mostrarHistorial)} className="px-5 py-3.5 rounded-2xl font-black text-xs bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all hover:scale-[1.02] active:scale-95 active:shadow-inner">
-                                        📜 <span>{mostrarHistorial ? 'Ocultar Historial' : 'Historial'}</span>
+                                        📜 <span>{mostrarHistorial ? 'Ocultar Bitácora' : 'Bitácora'}</span>
                                     </button>
                                 </Tooltip>
                                 <Tooltip text="Alternar Modo Claro / Oscuro">
@@ -1171,14 +1243,14 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA FIJA CON SCROLL CONTINUO Y SIN PAGINACIÓN FIJA */}
+                        {/* BITÁCORA CON SOPORTE DE BLOQUE MÚLTIPLE DESPLEGABLE */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Mostrando {historialFiltrado.length} asignaciones registradas (Scroll vertical activo)</p>
+                                            <p className="text-xs text-slate-400">Las asignaciones múltiples se agrupan en bloques con despliegue de detalle</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
@@ -1194,52 +1266,127 @@
                                     </div>
                                 </div>
 
-                                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                                <div className="overflow-x-auto max-h-[650px] overflow-y-auto">
                                     <table className="w-full text-left border-collapse">
                                         <thead>
                                             <tr className="bg-slate-950/90 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
                                                 <th className="p-4">Fecha / Hora</th>
-                                                <th className="p-4">SKU</th>
+                                                <th className="p-4">SKU / Operación</th>
                                                 <th className="p-4">Categoría</th>
                                                 <th className="p-4">Producto</th>
                                                 <th className="p-4">Cantidad</th>
                                                 <th className="p-4">Asignado A</th>
-                                                <th className="p-4">Observación</th>
+                                                <th className="p-4 text-center">Acción / Detalle</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-800/60 text-sm">
                                             {historialFiltrado.length === 0 ? (
-                                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones activas para mostrar.</td></tr>
+                                                <tr><td colSpan="7" className="p-8 text-center text-slate-500 font-bold">No hay registros de asignaciones para mostrar.</td></tr>
                                             ) : (
-                                                historialFiltrado.map(item => {
-                                                    const { fechaStr, horaStr } = formatearFechaClean(item);
-                                                    return (
-                                                        <tr key={item.id} className="hover:bg-indigo-950/20 transition-colors">
-                                                            <td className="p-4 whitespace-nowrap">
-                                                                <div className="flex flex-col gap-1">
-                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-bold text-slate-200">
-                                                                        📅 {fechaStr}
-                                                                    </span>
-                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-slate-400">
-                                                                        ⏰ {horaStr}
-                                                                    </span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="p-4 font-mono font-black text-indigo-400">{item.sku}</td>
-                                                            <td className="p-4 text-slate-400">{item.categoria}</td>
-                                                            <td className="p-4 font-bold text-white">{item.producto}</td>
-                                                            <td className="p-4 font-black">
-                                                                <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs">{item.cantidad} unid.</span>
-                                                            </td>
-                                                            <td className="p-4">
-                                                                <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
-                                                                    <Avatar nombre={item.personal_asignado} />
-                                                                    <span>{item.personal_asignado}</span>
-                                                                </div>
-                                                            </td>
-                                                            <td className="p-4 text-xs text-slate-400">{item.observaciones || '-'}</td>
-                                                        </tr>
-                                                    );
+                                                historialFiltrado.map((grupo, index) => {
+                                                    const { fechaStr, horaStr } = formatearFechaClean(grupo);
+                                                    const estaExpandido = !!lotesExpandidosMap[grupo.loteKey];
+
+                                                    if (grupo.esLote) {
+                                                        return (
+                                                            <React.Fragment key={grupo.loteKey || index}>
+                                                                <tr className="bg-indigo-950/30 hover:bg-indigo-950/50 transition-colors border-l-4 border-l-indigo-500">
+                                                                    <td className="p-4 whitespace-nowrap">
+                                                                        <div className="flex flex-col gap-1">
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-900/50 border border-indigo-700/60 text-xs font-bold text-indigo-200">
+                                                                                📅 {fechaStr}
+                                                                            </span>
+                                                                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-indigo-300">
+                                                                                ⏰ {horaStr}
+                                                                            </span>
+                                                                        </div>
+                                                                    </td>
+                                                                    <td className="p-4 font-mono font-black text-purple-400">
+                                                                        <span className="bg-purple-950 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs">🚀 LOTE MÚLTIPLE</span>
+                                                                    </td>
+                                                                    <td className="p-4 text-slate-400 font-bold">Varias Categ.</td>
+                                                                    <td className="p-4 font-extrabold text-indigo-300">
+                                                                        {grupo.prodsCount} Producto(s) en lote
+                                                                    </td>
+                                                                    <td className="p-4 font-black">
+                                                                        <span className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-xl text-xs">{grupo.cantTotal} unid. totales</span>
+                                                                    </td>
+                                                                    <td className="p-4">
+                                                                        <span className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
+                                                                            👥 {grupo.persCount} Colaborador(es)
+                                                                        </span>
+                                                                    </td>
+                                                                    <td className="p-4 text-center">
+                                                                        <button 
+                                                                            onClick={() => toggleLoteExpandido(grupo.loteKey)} 
+                                                                            className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95"
+                                                                        >
+                                                                            <span>{estaExpandido ? '📂 Ocultar Detalle' : '👁️ Ver Detalle'}</span>
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+
+                                                                {estaExpandido && (
+                                                                    <tr>
+                                                                        <td colSpan="7" className="p-4 bg-slate-950/90 border-b border-indigo-900/50">
+                                                                            <div className="p-4 rounded-2xl bg-slate-900/90 border border-indigo-500/30 space-y-3 shadow-inner">
+                                                                                <div className="flex justify-between items-center text-xs font-extrabold text-indigo-300 border-b border-slate-800 pb-2">
+                                                                                    <span>📋 Desglose del Lote ({grupo.totalItems} registros individuales)</span>
+                                                                                    <span className="text-slate-400 font-normal">Obs: {grupo.observaciones}</span>
+                                                                                </div>
+                                                                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                                                                    {grupo.items.map(subItem => (
+                                                                                        <div key={subItem.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col sm:flex-row justify-between sm:items-center text-xs gap-2">
+                                                                                            <div className="flex items-center gap-3">
+                                                                                                <span className="font-mono font-black text-indigo-400 bg-indigo-950 px-2 py-0.5 rounded border border-indigo-900">{subItem.sku}</span>
+                                                                                                <span className="font-bold text-white">{subItem.producto}</span>
+                                                                                                <span className="text-slate-500">({subItem.categoria})</span>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-3">
+                                                                                                <span className="bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800 font-black">{subItem.cantidad} unid.</span>
+                                                                                                <div className="flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2 py-0.5 rounded border border-amber-800 font-bold">
+                                                                                                    <Avatar nombre={subItem.personal_asignado} />
+                                                                                                    <span>{subItem.personal_asignado}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </React.Fragment>
+                                                        );
+                                                    } else {
+                                                        return (
+                                                            <tr key={grupo.id || index} className="hover:bg-indigo-950/20 transition-colors">
+                                                                <td className="p-4 whitespace-nowrap">
+                                                                    <div className="flex flex-col gap-1">
+                                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 text-xs font-bold text-slate-200">
+                                                                            📅 {fechaStr}
+                                                                        </span>
+                                                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-slate-900 text-[10px] font-mono font-semibold text-slate-400">
+                                                                            ⏰ {horaStr}
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-4 font-mono font-black text-indigo-400">{grupo.sku}</td>
+                                                                <td className="p-4 text-slate-400">{grupo.categoria}</td>
+                                                                <td className="p-4 font-bold text-white">{grupo.producto}</td>
+                                                                <td className="p-4 font-black">
+                                                                    <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs">{grupo.cantidad} unid.</span>
+                                                                </td>
+                                                                <td className="p-4">
+                                                                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-bold">
+                                                                        <Avatar nombre={grupo.personal_asignado} />
+                                                                        <span>{grupo.personal_asignado}</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-4 text-xs text-slate-400 text-center">{grupo.observaciones || '-'}</td>
+                                                            </tr>
+                                                        );
+                                                    }
                                                 })
                                             )}
                                         </tbody>
