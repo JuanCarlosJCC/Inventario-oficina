@@ -40,7 +40,7 @@
         const { useState, useEffect } = React;
 
         const SUPABASE_URL = 'https://ghjcvvcibapzhryrdtte.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_Nejs0JlpzyGf5ALznlTSdA_969MDDH4';
+        const SUPABASE_ANON_KEY = sb_publishable_Nejs0JlpzyGf5ALznlTSdA_969MDDH4';
 
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -164,9 +164,9 @@
                 fetchData();
             }, []);
 
-            // FORMATO LIMPIO, ORDENADO Y ELEGANTE DE FECHA Y HORA
+            // FORMATO ROBUSTO CON EVALUACIÓN DE MULTIPLES COLUMNAS DE FECHA
             const formatearFechaClean = (item) => {
-                const rawFecha = item.created_at;
+                const rawFecha = item.fecha_asignacion || item.created_at || item.fecha;
                 if (!rawFecha) return { fechaStr: 'S/F', horaStr: '--:--' };
                 const fecha = new Date(rawFecha);
                 if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
@@ -187,7 +187,7 @@
             };
 
             const descargarInventarioCSV = () => {
-                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Registro'];
+                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad', 'Observaciones', 'Personal_Asignado', 'Estado', 'Fecha_Asignacion'];
                 let filas = [];
 
                 if (productos.length > 0) {
@@ -199,7 +199,7 @@
                         item.observaciones || '',
                         item.personal_asignado || '',
                         item.activo !== false ? 'ACTIVO' : 'DESHABILITADO',
-                        item.created_at || ''
+                        item.fecha_asignacion || item.created_at || ''
                     ]);
                 } else {
                     filas = [
@@ -262,9 +262,11 @@
                             const columnas = fila.split(separador).map(c => c.trim().replace(/^["']|["']$/g, ''));
                             
                             if (columnas.length >= 3) {
-                                let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', personalAsignado = '', estadoStr = '';
+                                let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', personalAsignado = '', estadoStr = '', fechaStr = '';
 
-                                if (columnas.length >= 7) {
+                                if (columnas.length >= 8) {
+                                    [sku, categoria, productoNombre, cantidadStr, observaciones, personalAsignado, estadoStr, fechaStr] = columnas;
+                                } else if (columnas.length >= 7) {
                                     [sku, categoria, productoNombre, cantidadStr, observaciones, personalAsignado, estadoStr] = columnas;
                                 } else if (columnas.length >= 5) {
                                     [sku, categoria, productoNombre, cantidadStr, observaciones] = columnas;
@@ -288,7 +290,8 @@
                                             cantidad: cantidad,
                                             observaciones: observaciones !== undefined ? observaciones : filaPrincipal.observaciones,
                                             personal_asignado: personalAsignado !== undefined ? personalAsignado : filaPrincipal.personal_asignado,
-                                            activo: esActivo
+                                            activo: esActivo,
+                                            fecha_asignacion: fechaStr || filaPrincipal.fecha_asignacion || new Date().toISOString()
                                         }).eq('id', filaPrincipal.id);
 
                                         actualizadosCount++;
@@ -303,7 +306,8 @@
                                             cantidad: cantidad,
                                             observaciones: observaciones || 'Importado masivo',
                                             personal_asignado: personalAsignado || '',
-                                            activo: esActivo
+                                            activo: esActivo,
+                                            fecha_asignacion: fechaStr || new Date().toISOString()
                                         }]);
                                         creadosCount++;
                                     }
@@ -451,14 +455,14 @@
             const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
             const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
 
-            // FILTRADO DE ASIGNACIONES ACTIVAS CON EVALUACIÓN TRACED DE CAMPOS
+            // FILTRADO ROBUSTO DE ASIGNACIONES ACTIVAS CON FECHA_ASIGNACION
             const listaHistorialAsignaciones = productos.filter(p => {
                 const tienePersonal = p.personal_asignado && p.personal_asignado.trim() !== '';
                 const esActivo = p.activo !== false;
                 return tienePersonal && esActivo;
             }).sort((a, b) => {
-                const fA = new Date(a.created_at || 0).getTime();
-                const fB = new Date(b.created_at || 0).getTime();
+                const fA = new Date(a.fecha_asignacion || a.created_at || 0).getTime();
+                const fB = new Date(b.fecha_asignacion || b.created_at || 0).getTime();
                 return fB - fA || b.id - a.id;
             });
 
@@ -495,7 +499,8 @@
                     cantidad: Number(formProducto.cantidad),
                     observaciones: formProducto.observaciones,
                     personal_asignado: '',
-                    activo: true
+                    activo: true,
+                    fecha_asignacion: new Date().toISOString()
                 }]);
                 if (!error) {
                     setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '' });
@@ -531,7 +536,8 @@
                             cantidad: cantidadSumar,
                             observaciones: 'Reabastecido',
                             personal_asignado: '',
-                            activo: true
+                            activo: true,
+                            fecha_asignacion: new Date().toISOString()
                         }]);
                     }
                     setFormRestock({ sku: '', cantidadExtra: '' });
@@ -612,7 +618,7 @@
                 );
             };
 
-            // PROCESO ROBUSTO DE ASIGNACIÓN MULTIPLE
+            // GUARDA FECHA_ASIGNACION EN CADA NUEVA INSERCIÓN DE ASIGNACIÓN
             const handleConfirmarAsignacionMultiple = async (e) => {
                 e.preventDefault();
                 const prodIds = Object.keys(prodSeleccionadosMap);
@@ -627,6 +633,7 @@
 
                 try {
                     let totalAsignacionesCalculadas = 0;
+                    const timestampActualISO = new Date().toISOString();
 
                     for (const idProd of prodIds) {
                         const prodOriginal = productosLibresList.find(p => p.id == idProd);
@@ -655,7 +662,8 @@
                                 cantidad: cantPorPersona,
                                 observaciones: obsAsignacion || '',
                                 personal_asignado: persNombre,
-                                activo: true
+                                activo: true,
+                                fecha_asignacion: timestampActualISO
                             }]);
 
                             if (insErr) {
@@ -687,7 +695,7 @@
                     setPersonalSeleccionados([]);
                     setObsAsignacion('');
                     await fetchData();
-                    mostrarToast(`¡Éxito! Se guardaron ${totalAsignacionesCalculadas} asignaciones en la base de datos.`);
+                    mostrarToast(`¡Éxito! Se guardaron ${totalAsignacionesCalculadas} asignaciones con fecha estática.`);
                 } catch (err) {
                     console.error(err);
                     mostrarToast('Error durante el guardado de asignaciones.', 'error');
@@ -728,7 +736,8 @@
                             cantidad: cantADevolver,
                             observaciones: 'Devuelto',
                             personal_asignado: '',
-                            activo: true
+                            activo: true,
+                            fecha_asignacion: new Date().toISOString()
                         }]);
                     }
 
@@ -782,7 +791,7 @@
                         await supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + Number(item.cantidad) }).eq('id', stockLibreExistente.id);
                     } else {
                         await supabase.from('productos').insert([{
-                            sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true
+                            sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
                         }]);
                     }
                     await supabase.from('productos').delete().eq('id', item.id);
@@ -1198,7 +1207,7 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA FIJA CON DISEÑO ORDENADO Y BADGES DE FECHA Y HORA */}
+                        {/* BITÁCORA FIJA Y REGISTRO CRONOLÓGICO DE ASIGNACIONES */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
