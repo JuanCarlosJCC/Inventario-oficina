@@ -588,14 +588,41 @@
                 }));
             };
 
+            // MODAL: AGRUPACIÓN POR COLABORADOR Y POR SKU (SUMA DE UNIDADES EN VISTA DETALLE)
             const asignacionesPorPersonalMap = productosActivos
                 .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
                 .reduce((acc, curr) => {
                     const pers = curr.personal_asignado;
-                    if (!acc[pers]) acc[pers] = [];
-                    acc[pers].push(curr);
+                    if (!acc[pers]) acc[pers] = {};
+                    const skuKey = curr.sku;
+
+                    if (!acc[pers][skuKey]) {
+                        acc[pers][skuKey] = {
+                            id: curr.id,
+                            ids: [curr.id],
+                            sku: curr.sku,
+                            producto: curr.producto,
+                            categoria: curr.categoria,
+                            cantidad: Number(curr.cantidad) || 0,
+                            observaciones: curr.observaciones,
+                            personal_asignado: curr.personal_asignado,
+                            fecha_asignacion: curr.fecha_asignacion || curr.created_at
+                        };
+                    } else {
+                        acc[pers][skuKey].cantidad += Number(curr.cantidad) || 0;
+                        acc[pers][skuKey].ids.push(curr.id);
+                        if (new Date(curr.fecha_asignacion || curr.created_at) > new Date(acc[pers][skuKey].fecha_asignacion)) {
+                            acc[pers][skuKey].fecha_asignacion = curr.fecha_asignacion || curr.created_at;
+                            acc[pers][skuKey].observaciones = curr.observaciones;
+                        }
+                    }
                     return acc;
                 }, {});
+
+            const asignacionesAgrupadasListMap = Object.entries(asignacionesPorPersonalMap).reduce((acc, [colab, objSKUs]) => {
+                acc[colab] = Object.values(objSKUs);
+                return acc;
+            }, {});
 
             const handleSaveProducto = async (e) => {
                 e.preventDefault();
@@ -726,6 +753,7 @@
                 );
             };
 
+            // CONTROL DE ASIGNACIÓN CON VALIDACIÓN DE STOCK LIBRE REAL Y CONSOLIDACIÓN
             const handleConfirmarAsignacionMultiple = async (e) => {
                 e.preventDefault();
                 if (!supabase) return;
@@ -737,6 +765,21 @@
                 }
 
                 try {
+                    // Validar primero si hay suficiente stock libre para la operación completa
+                    for (const idProd of prodIds) {
+                        const prodOriginal = productosLibresList.find(p => p.id == idProd);
+                        if (!prodOriginal) continue;
+
+                        const cantPorPersona = Number(prodSeleccionadosMap[idProd]) || 1;
+                        const requerimientoTotal = cantPorPersona * personalSeleccionados.length;
+                        const stockLibreDisponible = prodOriginal.cantidad;
+
+                        if (requerimientoTotal > stockLibreDisponible) {
+                            mostrarToast(`No hay suficiente stock libre para "${prodOriginal.producto}". Se necesitan ${requerimientoTotal} unidades y solo hay ${stockLibreDisponible} disponibles.`, 'error');
+                            return;
+                        }
+                    }
+
                     const timestampActualISO = new Date().toISOString();
                     const tagLote = `LOTE-${Date.now()}`;
                     const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación (${tagLote})`;
@@ -747,18 +790,35 @@
                         const cantPorPersona = Number(prodSeleccionadosMap[idProd]) || 1;
 
                         for (const persNombre of personalSeleccionados) {
-                            await supabase.from('productos').insert([{
-                                sku: prodOriginal.sku,
-                                categoria: prodOriginal.categoria,
-                                producto: prodOriginal.producto,
-                                cantidad: cantPorPersona,
-                                observaciones: obsConLote,
-                                personal_asignado: persNombre,
-                                activo: true,
-                                fecha_asignacion: timestampActualISO
-                            }]);
+                            // Verificar si ya tiene asignado previamente este producto
+                            const asignacionExistente = productosActivos.find(
+                                p => p.sku === prodOriginal.sku && p.personal_asignado === persNombre
+                            );
+
+                            if (asignacionExistente) {
+                                // Sumar unidades si ya está asignado
+                                const nuevaCant = Number(asignacionExistente.cantidad) + cantPorPersona;
+                                await supabase.from('productos').update({
+                                    cantidad: nuevaCant,
+                                    observaciones: obsConLote,
+                                    fecha_asignacion: timestampActualISO
+                                }).eq('id', asignacionExistente.id);
+                            } else {
+                                // Insertar si es la primera vez que se asigna este SKU a este colaborador
+                                await supabase.from('productos').insert([{
+                                    sku: prodOriginal.sku,
+                                    categoria: prodOriginal.categoria,
+                                    producto: prodOriginal.producto,
+                                    cantidad: cantPorPersona,
+                                    observaciones: obsConLote,
+                                    personal_asignado: persNombre,
+                                    activo: true,
+                                    fecha_asignacion: timestampActualISO
+                                }]);
+                            }
                         }
 
+                        // Descontar del stock libre
                         let pendienteDescontar = cantPorPersona * personalSeleccionados.length;
                         const filasStockLibre = productosActivos.filter(p => p.sku === prodOriginal.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
 
@@ -830,6 +890,7 @@
                 }
             };
 
+            // DEVOLUCIÓN INDIVIDUAL DE UNIDADES CONSOLIDADA
             const handleEjecutarDevolucionAgrupada = async (asigItem) => {
                 const cantADevolver = Number(cantDevolver);
                 if (cantADevolver <= 0 || cantADevolver > asigItem.cantidad) {
@@ -838,6 +899,7 @@
                 }
 
                 try {
+                    // Reincorporar al stock libre
                     const stockLibreExistente = productosActivos.find(p => p.sku === asigItem.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
 
                     if (stockLibreExistente) {
@@ -856,8 +918,10 @@
                         }]);
                     }
 
+                    // Restar de la asignación del colaborador
                     let pendiente = cantADevolver;
-                    const filasBase = productosActivos.filter(p => p.sku === asigItem.sku && p.personal_asignado === asigItem.personal_asignado);
+                    const idsAProcesar = asigItem.ids && asigItem.ids.length > 0 ? asigItem.ids : [asigItem.id];
+                    const filasBase = productosActivos.filter(p => idsAProcesar.includes(p.id));
 
                     for (const fila of filasBase) {
                         if (pendiente <= 0) break;
@@ -884,13 +948,14 @@
 
             const handleGuardarObservacionEditada = async (asigItem) => {
                 try {
-                    if (asigItem.id) {
-                        await supabase.from('productos').update({ observaciones: nuevaObsTexto.trim() }).eq('id', asigItem.id);
-                        setEditandoObsKey(null);
-                        setNuevaObsTexto('');
-                        fetchData();
-                        mostrarToast('Observación actualizada correctamente.');
+                    const idsAActualizar = asigItem.ids && asigItem.ids.length > 0 ? asigItem.ids : [asigItem.id];
+                    for (const idReg of idsAActualizar) {
+                        await supabase.from('productos').update({ observaciones: nuevaObsTexto.trim() }).eq('id', idReg);
                     }
+                    setEditandoObsKey(null);
+                    setNuevaObsTexto('');
+                    fetchData();
+                    mostrarToast('Observación actualizada correctamente.');
                 } catch (err) {
                     console.error(err);
                     mostrarToast('Error al actualizar observación.', 'error');
@@ -1322,14 +1387,14 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA CON MEJORAS EN NOMBRES Y AGRUPACIÓN DE LOTE DE DETALLE */}
+                        {/* BITÁCORA E HISTORIAL COMPLETO */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Historial de asignaciones con vista previa agrupada por producto</p>
+                                            <p className="text-xs text-slate-400">Historial completo de eventos y registros de asignación</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-colors" />
@@ -1481,7 +1546,7 @@
                             </section>
                         )}
 
-                        {/* MODAL CON COLABORADORES COLAPSABLES Y BOTÓN DEVOLVER TODO */}
+                        {/* MODAL GLOBAL CON PRODUCTOS AGRUPADOS Y SUMADOS POR COLABORADOR */}
                         {modalAbierto && (
                             <div className="fixed inset-0 bg-[#0B0F19]/80 backdrop-blur-xl flex items-center justify-center p-4 z-50">
                                 <div className={`animate-modal-spring ${darkMode ? 'bg-[#0B0F19]/95 border-indigo-500/30 text-white' : 'bg-white border-slate-200 text-slate-800'} rounded-3xl border max-w-2xl w-full p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl shadow-indigo-950/50`}>
@@ -1516,12 +1581,12 @@
                                                         </div>
                                                     ))
                                                 ) : (
-                                                    Object.keys(asignacionesPorPersonalMap).length === 0 ? (
+                                                    Object.keys(asignacionesAgrupadasListMap).length === 0 ? (
                                                         <p className="text-xs text-slate-500 font-bold text-center py-4">No hay asignaciones registradas.</p>
                                                     ) : (
-                                                        Object.entries(asignacionesPorPersonalMap).map(([nombreColaborador, prodsAsignados]) => {
+                                                        Object.entries(asignacionesAgrupadasListMap).map(([nombreColaborador, prodsAgrupadosPorSKU]) => {
                                                             const estaColabExpandido = !!colaboradoresExpandidosMap[nombreColaborador];
-                                                            const totalUnidadesColab = prodsAsignados.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
+                                                            const totalUnidadesColab = prodsAgrupadosPorSKU.reduce((sum, item) => sum + item.cantidad, 0);
 
                                                             return (
                                                                 <div key={nombreColaborador} className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-2xl space-y-3">
@@ -1551,25 +1616,25 @@
                                                                         </div>
                                                                     </div>
 
-                                                                    {/* Lista Desplegable de Equipos por Colaborador */}
+                                                                    {/* Lista Desplegable Consolidada por SKU */}
                                                                     {estaColabExpandido && (
                                                                         <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
-                                                                            {prodsAsignados.map(asigItem => {
+                                                                            {prodsAgrupadosPorSKU.map(asigItem => {
                                                                                 const { fechaStr, horaStr } = formatearFechaClean(asigItem);
                                                                                 let obsItemLimpia = asigItem.observaciones || 'Sin observaciones';
                                                                                 obsItemLimpia = obsItemLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
                                                                                 if (!obsItemLimpia) obsItemLimpia = 'Sin observaciones';
 
                                                                                 return (
-                                                                                    <div key={asigItem.id} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
+                                                                                    <div key={asigItem.sku} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
                                                                                         <div className="flex justify-between items-start gap-2">
                                                                                             <div>
                                                                                                 <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
                                                                                                 <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                                                                                                    Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
+                                                                                                    Cantidad Asignada: <strong className="text-white text-xs">{asigItem.cantidad} unidades</strong>
                                                                                                 </div>
                                                                                                 <div className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-2">
-                                                                                                    <span>Asignado el:</span>
+                                                                                                    <span>Última asignación:</span>
                                                                                                     <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-200 font-bold">📅 {fechaStr}</span>
                                                                                                     <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 font-mono">⏰ {horaStr}</span>
                                                                                                 </div>
@@ -1580,13 +1645,13 @@
                                                                                             
                                                                                             <div className="flex items-center gap-2">
                                                                                                 <button 
-                                                                                                    onClick={() => { setEditandoObsKey(asigItem.id); setNuevaObsTexto(obsItemLimpia !== 'Sin observaciones' ? obsItemLimpia : ''); }} 
+                                                                                                    onClick={() => { setEditandoObsKey(asigItem.sku); setNuevaObsTexto(obsItemLimpia !== 'Sin observaciones' ? obsItemLimpia : ''); }} 
                                                                                                     className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
                                                                                                 >
                                                                                                     ✎ Editar Obs.
                                                                                                 </button>
                                                                                                 <button 
-                                                                                                    onClick={() => { setDevolviendoKey(asigItem.id); setCantDevolver(1); }} 
+                                                                                                    onClick={() => { setDevolviendoKey(asigItem.sku); setCantDevolver(1); }} 
                                                                                                     className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
                                                                                                 >
                                                                                                     Devolver
@@ -1594,7 +1659,7 @@
                                                                                             </div>
                                                                                         </div>
 
-                                                                                        {editandoObsKey === asigItem.id && (
+                                                                                        {editandoObsKey === asigItem.sku && (
                                                                                             <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
                                                                                                 <input 
                                                                                                     type="text" 
@@ -1608,7 +1673,7 @@
                                                                                             </div>
                                                                                         )}
 
-                                                                                        {devolviendoKey === asigItem.id && (
+                                                                                        {devolviendoKey === asigItem.sku && (
                                                                                             <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
                                                                                                 <div className="flex items-center gap-2">
                                                                                                     <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
