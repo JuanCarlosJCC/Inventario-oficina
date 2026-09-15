@@ -198,14 +198,14 @@
                 return { fechaStr, horaStr };
             };
 
-            // EXPORTACIÓN EXCLUSIVA DE PRODUCTOS (CATÁLOGO BASE)
+            // EXPORTACIÓN CORREGIDA: EXPORTA LA CANTIDAD FÍSICA TOTAL DEL ALMACÉN
             const descargarInventarioCSV = () => {
-                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad_Libre', 'Observaciones', 'Estado'];
+                const cabecera = ['SKU', 'Categoria', 'Producto', 'Cantidad_Total_Stock', 'Observaciones', 'Estado'];
                 let filas = [];
 
                 if (productosUnicosGlobalList.length > 0) {
                     filas = productosUnicosGlobalList.map(item => {
-                        const prodRef = productos.find(p => p.sku === item.sku && (!p.personal_asignado || p.personal_asignado.trim() === '')) || productos.find(p => p.sku === item.sku);
+                        const prodRef = productos.find(p => p.sku === item.sku);
                         const obsLimpia = prodRef ? (prodRef.observaciones || '').replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim() : '';
                         const esActivo = item.cantidadDeshabilitada === 0 ? 'ACTIVO' : 'DESHABILITADO';
 
@@ -213,7 +213,7 @@
                             item.sku || '',
                             prodRef ? prodRef.categoria : 'General',
                             item.producto || '',
-                            item.cantidadLibre || 0,
+                            item.cantidadTotal || 0, // Muestra el stock total real en almacén
                             obsLimpia || 'Sin observaciones',
                             esActivo
                         ];
@@ -232,7 +232,7 @@
                 mostrarToast('Catálogo de productos exportado.');
             };
 
-            // IMPORTACIÓN MÁSIVA NETAMENTE DE PRODUCTOS SIN CONFLICTO CON ASIGNACIONES
+            // IMPORTACIÓN CSV CORREGIDA: PERMITE ACTUALIZAR CANTIDADES MANTENIENDO ESTADO DESHABILITADO
             const handleImportarCSV = async (e) => {
                 const archivo = e.target.files[0];
                 if (!archivo) return;
@@ -279,65 +279,39 @@
                                     [categoria, productoNombre, cantidadStr] = columnas;
                                 }
 
-                                const nuevaCantLibre = parseInt(cantidadStr, 10);
+                                const nuevaCant = parseInt(cantidadStr, 10);
                                 const skuNorm = sku ? sku.trim().toUpperCase() : '';
                                 const esActivo = estadoStr ? estadoStr.toUpperCase() !== 'DESHABILITADO' : true;
 
-                                if (productoNombre && !isNaN(nuevaCantLibre) && nuevaCantLibre >= 0) {
-                                    const filasLibresExistentes = prodActuales.filter(p => p.sku === skuNorm && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+                                if (productoNombre && !isNaN(nuevaCant) && nuevaCant >= 0) {
+                                    const filasExistentesMismoSKU = prodActuales.filter(p => p.sku === skuNorm);
 
-                                    if (filasLibresExistentes.length > 0) {
-                                        const filaPrincipalLibre = filasLibresExistentes[0];
+                                    if (filasExistentesMismoSKU.length > 0) {
+                                        const filaBase = filasExistentesMismoSKU[0];
                                         await supabase.from('productos').update({
-                                            categoria: categoria || filaPrincipalLibre.categoria,
+                                            categoria: categoria || filaBase.categoria,
                                             producto: productoNombre,
-                                            cantidad: nuevaCantLibre,
-                                            observaciones: observaciones !== undefined ? observaciones : filaPrincipalLibre.observaciones,
+                                            cantidad: nuevaCant,
+                                            observaciones: observaciones !== undefined ? observaciones : filaBase.observaciones,
                                             activo: esActivo
-                                        }).eq('id', filaPrincipalLibre.id);
-
-                                        // Eliminar posibles filas duplicadas de stock libre para mantener orden
-                                        if (filasLibresExistentes.length > 1) {
-                                            for (let i = 1; i < filasLibresExistentes.length; i++) {
-                                                await supabase.from('productos').delete().eq('id', filasLibresExistentes[i].id);
-                                            }
-                                        }
+                                        }).eq('id', filaBase.id);
 
                                         actualizadosCount++;
                                     } else {
-                                        // Verificar si el SKU ya existe en la BD asignado pero no libre
-                                        const existeMismoSKU = prodActuales.some(p => p.sku === skuNorm);
+                                        maxSKUNum++;
+                                        const nuevoSKU = skuNorm || `PROD-${String(maxSKUNum).padStart(3, '0')}`;
 
-                                        if (existeMismoSKU && skuNorm) {
-                                            if (nuevaCantLibre > 0) {
-                                                await supabase.from('productos').insert([{
-                                                    sku: skuNorm,
-                                                    categoria: categoria || 'General',
-                                                    producto: productoNombre,
-                                                    cantidad: nuevaCantLibre,
-                                                    observaciones: observaciones || 'Actualizado vía CSV',
-                                                    personal_asignado: '',
-                                                    activo: esActivo,
-                                                    fecha_asignacion: new Date().toISOString()
-                                                }]);
-                                            }
-                                            actualizadosCount++;
-                                        } else {
-                                            maxSKUNum++;
-                                            const nuevoSKU = skuNorm || `PROD-${String(maxSKUNum).padStart(3, '0')}`;
-
-                                            await supabase.from('productos').insert([{
-                                                sku: nuevoSKU,
-                                                categoria: categoria || 'General',
-                                                producto: productoNombre,
-                                                cantidad: nuevaCantLibre,
-                                                observaciones: observaciones || 'Importado vía CSV',
-                                                personal_asignado: '',
-                                                activo: esActivo,
-                                                fecha_asignacion: new Date().toISOString()
-                                            }]);
-                                            creadosCount++;
-                                        }
+                                        await supabase.from('productos').insert([{
+                                            sku: nuevoSKU,
+                                            categoria: categoria || 'General',
+                                            producto: productoNombre,
+                                            cantidad: nuevaCant,
+                                            observaciones: observaciones || 'Importado vía CSV',
+                                            personal_asignado: '',
+                                            activo: esActivo,
+                                            fecha_asignacion: new Date().toISOString()
+                                        }]);
+                                        creadosCount++;
                                     }
                                 }
                             }
@@ -665,6 +639,7 @@
                 }
             };
 
+            // REABASTECIMIENTO CORREGIDO: SUMA DIRECTAMENTE AL PRODUCTO EXISTENTE AÚN ESTANDO DESHABILITADO
             const handleRestockProducto = async (e) => {
                 e.preventDefault();
                 if (!formRestock.sku || !formRestock.cantidadExtra || Number(formRestock.cantidadExtra) <= 0) {
@@ -673,20 +648,17 @@
                 }
                 try {
                     const cantidadSumar = Number(formRestock.cantidadExtra);
-                    const filasLibresMismoSKU = productosActivos.filter(
-                        p => p.sku === formRestock.sku && (!p.personal_asignado || p.personal_asignado.trim() === '')
-                    );
+                    const filasExistentesMismoSKU = productos.filter(p => p.sku === formRestock.sku);
 
-                    if (filasLibresMismoSKU.length > 0) {
-                        const filaPrincipal = filasLibresMismoSKU[0];
+                    if (filasExistentesMismoSKU.length > 0) {
+                        const filaPrincipal = filasExistentesMismoSKU[0];
                         const nuevaCant = Number(filaPrincipal.cantidad) + cantidadSumar;
                         await supabase.from('productos').update({ cantidad: nuevaCant }).eq('id', filaPrincipal.id);
                     } else {
-                        const refProd = productos.find(p => p.sku === formRestock.sku);
                         await supabase.from('productos').insert([{
-                            sku: refProd.sku,
-                            categoria: refProd.categoria,
-                            producto: refProd.producto,
+                            sku: formRestock.sku,
+                            categoria: 'General',
+                            producto: formRestock.sku,
                             cantidad: cantidadSumar,
                             observaciones: 'Reabastecido',
                             personal_asignado: '',
@@ -1182,16 +1154,16 @@
                             </section>
                         )}
 
-                        {/* PESTAÑA: GESTIONAR CATALOGO DE PRODUCTOS Y CSV NETAMENTE BASE */}
+                        {/* PESTAÑA: GESTIONAR CATALOGO DE PRODUCTOS Y CSV BASE */}
                         {tabActiva === 'productos' && (
                             <div className="space-y-6 animate-tab">
                                 <section className={`${darkMode ? 'bg-gradient-to-r from-indigo-950/40 via-slate-900/80 to-purple-950/40 border-indigo-500/30 text-slate-100' : 'bg-gradient-to-r from-indigo-50 via-white to-purple-50 border-indigo-200 text-slate-800'} p-8 rounded-3xl border backdrop-blur-xl space-y-4 shadow-xl`}>
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black flex items-center gap-3">
-                                                <span className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">📊</span> Catálogo y Gestión Masiva CSV (Stock Base)
+                                                <span className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">📊</span> Catálogo y Gestión Masiva CSV (Stock Almacén)
                                             </h2>
-                                            <p className={`text-xs mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Exporta o actualiza únicamente el catálogo de productos y stock libre. No incluye asignaciones.</p>
+                                            <p className={`text-xs mt-1 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Exporta o actualiza el stock físico completo almacenado de cada producto.</p>
                                         </div>
                                         <button onClick={descargarInventarioCSV} className="px-5 py-3 rounded-2xl font-extrabold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 cursor-pointer flex items-center gap-2 transition-all active:translate-y-0.5 border border-indigo-400/20">
                                             <span>📥</span> Exportar Catálogo CSV
@@ -1202,7 +1174,7 @@
                                             <span className="text-2xl">📂</span>
                                             <div>
                                                 <p className={`text-xs font-bold ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}>Selecciona tu archivo CSV para actualizar/crear productos base</p>
-                                                <p className={`text-[11px] ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Columnas: SKU; Categoria; Producto; Cantidad_Libre; Observaciones; Estado</p>
+                                                <p className={`text-[11px] ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Columnas: SKU; Categoria; Producto; Cantidad_Total_Stock; Observaciones; Estado</p>
                                             </div>
                                         </div>
                                         <input type="file" accept=".csv" onChange={handleImportarCSV} className={`text-xs font-semibold file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:cursor-pointer transition ${darkMode ? 'text-slate-400 file:bg-indigo-600 file:text-white hover:file:bg-indigo-500' : 'text-slate-600 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100'}`} />
@@ -1278,8 +1250,8 @@
 
                                                 {productoSeleccionadoRestock && (
                                                     <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex justify-between items-center text-xs font-extrabold">
-                                                        <span className="text-emerald-400">📦 Stock Libre Actual:</span>
-                                                        <span className="bg-emerald-600 text-white px-3 py-1 rounded-xl shadow-inner">{productoSeleccionadoRestock.cantidadLibre} unidades</span>
+                                                        <span className="text-emerald-400">📦 Stock Almacén Actual:</span>
+                                                        <span className="bg-emerald-600 text-white px-3 py-1 rounded-xl shadow-inner">{productoSeleccionadoRestock.cantidadTotal} unidades</span>
                                                     </div>
                                                 )}
 
