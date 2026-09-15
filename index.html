@@ -105,6 +105,7 @@
             const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
             const [lotesExpandidosMap, setLotesExpandidosMap] = useState({});
+            const [colaboradoresExpandidosMap, setColaboradoresExpandidosMap] = useState({});
 
             const [devolviendoKey, setDevolviendoKey] = useState(null);
             const [cantDevolver, setCantDevolver] = useState(1);
@@ -462,7 +463,7 @@
                 return fB - fA || b.id - a.id;
             });
 
-            // LÓGICA DE AGRUPACIÓN POR LOTE O MINUTO EXACTO
+            // AGRUPACIÓN POR LOTE
             const estructurarHistorialPorLotes = (lista) => {
                 const mapaLotes = new Map();
 
@@ -485,6 +486,33 @@
                         const persUnicos = Array.from(new Set(items.map(i => i.personal_asignado)));
                         const cantTotal = items.reduce((sum, i) => sum + (Number(i.cantidad) || 0), 0);
 
+                        // Agrupar productos dentro del lote para visualización limpia
+                        const productosAgrupadosMap = items.reduce((acc, current) => {
+                            const pKey = current.sku;
+                            if (!acc[pKey]) {
+                                acc[pKey] = {
+                                    sku: current.sku,
+                                    producto: current.producto,
+                                    categoria: current.categoria,
+                                    cantidadTotal: 0,
+                                    colaboradores: new Set()
+                                };
+                            }
+                            acc[pKey].cantidadTotal += Number(current.cantidad) || 0;
+                            acc[pKey].colaboradores.add(current.personal_asignado);
+                            return acc;
+                        }, {});
+
+                        const productosAgrupadosLote = Object.values(productosAgrupadosMap).map(p => ({
+                            ...p,
+                            colaboradores: Array.from(p.colaboradores)
+                        }));
+
+                        // Limpiar texto de observación quitando la etiqueta LOTE-xxx
+                        let obsLoteLimpia = items[0].observaciones || 'Sin observaciones';
+                        obsLoteLimpia = obsLoteLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
+                        if (!obsLoteLimpia) obsLoteLimpia = 'Sin observaciones';
+
                         lotesProcesados.push({
                             esLote: true,
                             loteKey: key,
@@ -494,13 +522,19 @@
                             persCount: persUnicos.length,
                             cantTotal,
                             items,
-                            observaciones: items[0].observaciones || 'Asignación múltiple'
+                            productosAgrupadosLote,
+                            observaciones: obsLoteLimpia
                         });
                     } else {
+                        let obsIndividualLimpia = items[0].observaciones || '-';
+                        obsIndividualLimpia = obsIndividualLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
+                        if (!obsIndividualLimpia) obsIndividualLimpia = '-';
+
                         lotesProcesados.push({
                             esLote: false,
                             loteKey: key,
-                            ...items[0]
+                            ...items[0],
+                            observacionesLimpia: obsIndividualLimpia
                         });
                     }
                 });
@@ -537,6 +571,13 @@
                 setLotesExpandidosMap(prev => ({
                     ...prev,
                     [loteKey]: !prev[loteKey]
+                }));
+            };
+
+            const toggleColaboradorExpandido = (nombreColaborador) => {
+                setColaboradoresExpandidosMap(prev => ({
+                    ...prev,
+                    [nombreColaborador]: !prev[nombreColaborador]
                 }));
             };
 
@@ -691,7 +732,7 @@
                 try {
                     const timestampActualISO = new Date().toISOString();
                     const tagLote = `LOTE-${Date.now()}`;
-                    const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación Múltiple (${tagLote})`;
+                    const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación (${tagLote})`;
 
                     for (const idProd of prodIds) {
                         const prodOriginal = productosLibresList.find(p => p.id == idProd);
@@ -731,7 +772,7 @@
                     setPersonalSeleccionados([]);
                     setObsAsignacion('');
                     await fetchData();
-                    mostrarToast('¡Asignación múltiple guardada como bloque!');
+                    mostrarToast('¡Asignación guardada con éxito!');
                 } catch (err) {
                     console.error(err);
                     mostrarToast('Error al procesar asignación.', 'error');
@@ -748,6 +789,37 @@
                     setFormPersonal({ nombre: '', cargo: '' });
                     fetchData();
                     mostrarToast('Personal registrado con éxito.');
+                }
+            };
+
+            const handleDevolverTodoColaborador = async (nombreColaborador) => {
+                if (!window.confirm(`¿Devolver TODOS los productos asignados a "${nombreColaborador}" al stock libre?`)) return;
+
+                try {
+                    const asignacionesDelPersonal = productosActivos.filter(p => p.personal_asignado === nombreColaborador);
+                    let totalUnidadesDevueltas = 0;
+
+                    for (const item of asignacionesDelPersonal) {
+                        const cantItem = Number(item.cantidad) || 1;
+                        totalUnidadesDevueltas += cantItem;
+
+                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+
+                        if (stockLibreExistente) {
+                            await supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + cantItem }).eq('id', stockLibreExistente.id);
+                        } else {
+                            await supabase.from('productos').insert([{
+                                sku: item.sku, categoria: item.categoria, producto: item.producto, cantidad: cantItem, observaciones: 'Devuelto masivo', personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
+                            }]);
+                        }
+                        await supabase.from('productos').delete().eq('id', item.id);
+                    }
+
+                    fetchData();
+                    mostrarToast(`Se devolvieron ${totalUnidadesDevueltas} unidades de "${nombreColaborador}" al stock libre.`);
+                } catch (err) {
+                    console.error(err);
+                    mostrarToast('Error al devolver todos los productos.', 'error');
                 }
             };
 
@@ -915,7 +987,7 @@
 
                         {/* BARRA DE NAVEGACIÓN DE PESTAÑAS */}
                         <div className={`flex gap-3 ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} p-2 rounded-3xl border backdrop-blur-xl shadow-xl overflow-x-auto`}>
-                            <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>🔗 Asignar Productos (Múltiple)</button>
+                            <button onClick={() => setTabActiva('asignar')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'asignar' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>🔗 Asignar Productos</button>
                             <button onClick={() => setTabActiva('productos')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'productos' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>📦 Gestionar e Importar Stock</button>
                             <button onClick={() => setTabActiva('deshabilitados')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'deshabilitados' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>🚫 Productos Deshabilitados ({productosDeshabilitados.length})</button>
                             <button onClick={() => setTabActiva('personal')} className={`flex-1 py-3.5 px-5 rounded-2xl font-extrabold text-xs tracking-wide transition-all cursor-pointer whitespace-nowrap active:translate-y-0.5 ${tabActiva === 'personal' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'text-slate-400 hover:text-slate-200'}`}>👥 Agregar Personal</button>
@@ -927,9 +999,9 @@
                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 border-b border-slate-800/60 pb-4">
                                     <div>
                                         <h2 className="text-xl font-black flex items-center gap-3">
-                                            <span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">🔗</span> Asignación Múltiple Rápida
+                                            <span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">🔗</span> Asignación de Productos
                                         </h2>
-                                        <p className="text-xs text-slate-400 mt-1">Selecciona varios productos activos y colaboradores para asignar todo en un solo clic.</p>
+                                        <p className="text-xs text-slate-400 mt-1">Selecciona uno o varios productos activos y colaboradores para asignar en una sola operación.</p>
                                     </div>
                                 </div>
 
@@ -1017,11 +1089,11 @@
                                     <div className="space-y-4 pt-2 border-t border-slate-800/80">
                                         <div>
                                             <label className="block text-xs font-black uppercase mb-1 text-slate-400">Observaciones Generales (Opcional)</label>
-                                            <input type="text" placeholder="Ej. Entrega masiva para proyecto Lima" value={obsAsignacion} onChange={e => setObsAsignacion(e.target.value)} className={`w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none transition-all ${darkMode ? 'bg-slate-800/80 border-slate-700 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-300'}`} />
+                                            <input type="text" placeholder="Ej. Entrega para sede principal" value={obsAsignacion} onChange={e => setObsAsignacion(e.target.value)} className={`w-full border rounded-2xl px-4 py-3.5 text-sm font-semibold outline-none transition-all ${darkMode ? 'bg-slate-800/80 border-slate-700 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-300'}`} />
                                         </div>
 
                                         <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold py-4 rounded-2xl shadow-xl shadow-indigo-600/30 cursor-pointer text-sm transition-all hover:scale-[1.01] active:translate-y-0.5 active:shadow-inner">
-                                            🚀 Confirmar Asignación Múltiple ({Object.keys(prodSeleccionadosMap).length} Productos ➔ {personalSeleccionados.length} Personales)
+                                            🚀 Confirmar Asignación ({Object.keys(prodSeleccionadosMap).length} Productos ➔ {personalSeleccionados.length} Personales)
                                         </button>
                                     </div>
                                 </form>
@@ -1243,14 +1315,14 @@
                             </section>
                         )}
 
-                        {/* BITÁCORA CON SOPORTE DE BLOQUE MÚLTIPLE DESPLEGABLE */}
+                        {/* BITÁCORA CON MEJORAS EN NOMBRES Y AGRUPACIÓN DE LOTE DE DETALLE */}
                         {mostrarHistorial && (
                             <section className={`animate-tab ${darkMode ? 'bg-slate-900/60 border-slate-800/80' : 'bg-white/80 border-slate-200'} rounded-3xl border backdrop-blur-xl overflow-hidden shadow-2xl transition-all`}>
                                 <div className="p-6 border-b border-slate-800/80 space-y-4">
                                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                         <div>
                                             <h2 className="text-xl font-black">📜 Bitácora e Historial de Movimientos</h2>
-                                            <p className="text-xs text-slate-400">Las asignaciones múltiples se agrupan en bloques con despliegue de detalle</p>
+                                            <p className="text-xs text-slate-400">Historial de asignaciones con vista previa agrupada por producto</p>
                                         </div>
                                         <div className="w-full sm:w-auto">
                                             <input type="text" placeholder="🔍 Buscar por nombre, SKU..." value={busqueda} onChange={e => setBusqueda(e.target.value)} className="w-full sm:w-64 bg-slate-800/80 border-slate-700 rounded-2xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500" />
@@ -1271,7 +1343,7 @@
                                         <thead>
                                             <tr className="bg-slate-950/90 backdrop-blur-md sticky top-0 text-slate-400 text-xs font-black uppercase border-b border-slate-800/80 z-10">
                                                 <th className="p-4">Fecha / Hora</th>
-                                                <th className="p-4">SKU / Operación</th>
+                                                <th className="p-4">SKU</th>
                                                 <th className="p-4">Categoría</th>
                                                 <th className="p-4">Producto</th>
                                                 <th className="p-4">Cantidad</th>
@@ -1302,11 +1374,11 @@
                                                                         </div>
                                                                     </td>
                                                                     <td className="p-4 font-mono font-black text-purple-400">
-                                                                        <span className="bg-purple-950 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs">🚀 LOTE MÚLTIPLE</span>
+                                                                        <span className="bg-purple-950 px-2.5 py-1 rounded-lg border border-purple-800/80 text-xs">🚀 ASIGNACIÓN</span>
                                                                     </td>
                                                                     <td className="p-4 text-slate-400 font-bold">Varias Categ.</td>
                                                                     <td className="p-4 font-extrabold text-indigo-300">
-                                                                        {grupo.prodsCount} Producto(s) en lote
+                                                                        {grupo.prodsCount} Producto(s)
                                                                     </td>
                                                                     <td className="p-4 font-black">
                                                                         <span className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/40 rounded-xl text-xs">{grupo.cantTotal} unid. totales</span>
@@ -1319,7 +1391,7 @@
                                                                     <td className="p-4 text-center">
                                                                         <button 
                                                                             onClick={() => toggleLoteExpandido(grupo.loteKey)} 
-                                                                            className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95"
+                                                                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-1.5 mx-auto active:scale-95"
                                                                         >
                                                                             <span>{estaExpandido ? '📂 Ocultar Detalle' : '👁️ Ver Detalle'}</span>
                                                                         </button>
@@ -1329,24 +1401,31 @@
                                                                 {estaExpandido && (
                                                                     <tr>
                                                                         <td colSpan="7" className="p-4 bg-slate-950/90 border-b border-indigo-900/50">
-                                                                            <div className="p-4 rounded-2xl bg-slate-900/90 border border-indigo-500/30 space-y-3 shadow-inner">
-                                                                                <div className="flex justify-between items-center text-xs font-extrabold text-indigo-300 border-b border-slate-800 pb-2">
-                                                                                    <span>📋 Desglose del Lote ({grupo.totalItems} registros individuales)</span>
+                                                                            <div className="p-5 rounded-2xl bg-slate-900/90 border border-indigo-500/30 space-y-4 shadow-inner">
+                                                                                <div className="flex justify-between items-center text-xs font-extrabold text-indigo-300 border-b border-slate-800 pb-2.5">
+                                                                                    <span>📋 Detalle Agrupado por Producto</span>
                                                                                     <span className="text-slate-400 font-normal">Obs: {grupo.observaciones}</span>
                                                                                 </div>
-                                                                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                                                                    {grupo.items.map(subItem => (
-                                                                                        <div key={subItem.id} className="p-3 bg-slate-950 rounded-xl border border-slate-800/80 flex flex-col sm:flex-row justify-between sm:items-center text-xs gap-2">
+                                                                                <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+                                                                                    {grupo.productosAgrupadosLote.map((prodAgrup, pIdx) => (
+                                                                                        <div key={pIdx} className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800/80 flex flex-col md:flex-row justify-between md:items-center text-xs gap-3">
                                                                                             <div className="flex items-center gap-3">
-                                                                                                <span className="font-mono font-black text-indigo-400 bg-indigo-950 px-2 py-0.5 rounded border border-indigo-900">{subItem.sku}</span>
-                                                                                                <span className="font-bold text-white">{subItem.producto}</span>
-                                                                                                <span className="text-slate-500">({subItem.categoria})</span>
+                                                                                                <span className="font-mono font-black text-indigo-400 bg-indigo-950 px-2.5 py-1 rounded-lg border border-indigo-800/80">{prodAgrup.sku}</span>
+                                                                                                <div>
+                                                                                                    <div className="font-extrabold text-white text-sm">{prodAgrup.producto}</div>
+                                                                                                    <div className="text-slate-400 text-[11px] font-semibold">Categoría: {prodAgrup.categoria}</div>
+                                                                                                </div>
                                                                                             </div>
-                                                                                            <div className="flex items-center gap-3">
-                                                                                                <span className="bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800 font-black">{subItem.cantidad} unid.</span>
-                                                                                                <div className="flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2 py-0.5 rounded border border-amber-800 font-bold">
-                                                                                                    <Avatar nombre={subItem.personal_asignado} />
-                                                                                                    <span>{subItem.personal_asignado}</span>
+                                                                                            <div className="flex items-center gap-3 flex-wrap">
+                                                                                                <span className="bg-indigo-950 text-indigo-300 px-3 py-1 rounded-xl border border-indigo-800 font-black text-xs">{prodAgrup.cantidadTotal} unid. asignadas</span>
+                                                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                                                    <span className="text-[11px] text-slate-400 font-bold">A:</span>
+                                                                                                    {prodAgrup.colaboradores.map((colab, cIdx) => (
+                                                                                                        <div key={cIdx} className="inline-flex items-center gap-1.5 bg-amber-950/60 text-amber-300 px-2.5 py-1 rounded-xl border border-amber-800 font-bold text-[11px]">
+                                                                                                            <Avatar nombre={colab} />
+                                                                                                            <span>{colab}</span>
+                                                                                                        </div>
+                                                                                                    ))}
                                                                                                 </div>
                                                                                             </div>
                                                                                         </div>
@@ -1383,7 +1462,7 @@
                                                                         <span>{grupo.personal_asignado}</span>
                                                                     </div>
                                                                 </td>
-                                                                <td className="p-4 text-xs text-slate-400 text-center">{grupo.observaciones || '-'}</td>
+                                                                <td className="p-4 text-xs text-slate-400 text-center font-bold">{grupo.observacionesLimpia}</td>
                                                             </tr>
                                                         );
                                                     }
@@ -1395,7 +1474,7 @@
                             </section>
                         )}
 
-                        {/* MODAL CON DESGLOSE COMPLETO Y DEVOLUCIÓN */}
+                        {/* MODAL CON COLABORADORES COLAPSABLES Y BOTÓN DEVOLVER TODO */}
                         {modalAbierto && (
                             <div className="fixed inset-0 bg-[#0B0F19]/80 backdrop-blur-xl flex items-center justify-center p-4 z-50">
                                 <div className={`animate-modal-spring ${darkMode ? 'bg-[#0B0F19]/95 border-indigo-500/30 text-white' : 'bg-white border-slate-200 text-slate-800'} rounded-3xl border max-w-2xl w-full p-8 space-y-6 max-h-[90vh] overflow-y-auto shadow-2xl shadow-indigo-950/50`}>
@@ -1406,7 +1485,7 @@
                                     {seccionSeleccionada && (
                                         <div className="bg-slate-950/80 border border-slate-800/80 p-5 rounded-2xl space-y-4">
                                             <h4 className="font-black text-xs uppercase tracking-widest text-indigo-400">Filtrado por: {seccionSeleccionada.toUpperCase()}</h4>
-                                            <div className="max-h-72 overflow-y-auto space-y-4 pr-1">
+                                            <div className="max-h-80 overflow-y-auto space-y-4 pr-1">
                                                 {seccionSeleccionada === 'personal' ? (
                                                     personalList.map(p => (
                                                         <div key={p.id} className="bg-slate-900/80 border border-slate-800/80 p-3.5 rounded-2xl flex justify-between items-center text-sm font-semibold">
@@ -1433,93 +1512,123 @@
                                                     Object.keys(asignacionesPorPersonalMap).length === 0 ? (
                                                         <p className="text-xs text-slate-500 font-bold text-center py-4">No hay asignaciones registradas.</p>
                                                     ) : (
-                                                        Object.entries(asignacionesPorPersonalMap).map(([nombreColaborador, prodsAsignados]) => (
-                                                            <div key={nombreColaborador} className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-2xl space-y-3">
-                                                                <div className="font-black text-amber-400 text-sm border-b border-slate-800/80 pb-2 flex items-center justify-between">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <Avatar nombre={nombreColaborador} />
-                                                                        <span>Colaborador: {nombreColaborador}</span>
-                                                                    </div>
-                                                                    <span className="text-xs text-slate-400 font-bold">({prodsAsignados.length} equipos activos)</span>
-                                                                </div>
+                                                        Object.entries(asignacionesPorPersonalMap).map(([nombreColaborador, prodsAsignados]) => {
+                                                            const estaColabExpandido = !!colaboradoresExpandidosMap[nombreColaborador];
+                                                            const totalUnidadesColab = prodsAsignados.reduce((sum, item) => sum + (Number(item.cantidad) || 0), 0);
 
-                                                                <div className="space-y-2.5 pl-2">
-                                                                    {prodsAsignados.map(asigItem => {
-                                                                        const { fechaStr, horaStr } = formatearFechaClean(asigItem);
-                                                                        return (
-                                                                            <div key={asigItem.id} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
-                                                                                <div className="flex justify-between items-start gap-2">
-                                                                                    <div>
-                                                                                        <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
-                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
-                                                                                            Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
-                                                                                        </div>
-                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-2">
-                                                                                            <span>Asignado el:</span>
-                                                                                            <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-200 font-bold">📅 {fechaStr}</span>
-                                                                                            <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 font-mono">⏰ {horaStr}</span>
-                                                                                        </div>
-                                                                                        <div className="text-[11px] text-slate-400 font-semibold mt-1">
-                                                                                            Obs: <span className="text-slate-300 font-normal">{asigItem.observaciones || 'Sin observaciones'}</span>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    
-                                                                                    <div className="flex items-center gap-2">
-                                                                                        <button 
-                                                                                            onClick={() => { setEditandoObsKey(asigItem.id); setNuevaObsTexto(asigItem.observaciones || ''); }} 
-                                                                                            className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
-                                                                                        >
-                                                                                            ✎ Editar Obs.
-                                                                                        </button>
-                                                                                        <button 
-                                                                                            onClick={() => { setDevolviendoKey(asigItem.id); setCantDevolver(1); }} 
-                                                                                            className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
-                                                                                        >
-                                                                                            Devolver
-                                                                                        </button>
-                                                                                    </div>
-                                                                                </div>
-
-                                                                                {editandoObsKey === asigItem.id && (
-                                                                                    <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
-                                                                                        <input 
-                                                                                            type="text" 
-                                                                                            placeholder="Escribe la observación..." 
-                                                                                            value={nuevaObsTexto} 
-                                                                                            onChange={e => setNuevaObsTexto(e.target.value)} 
-                                                                                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
-                                                                                        />
-                                                                                        <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
-                                                                                        <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
-                                                                                    </div>
-                                                                                )}
-
-                                                                                {devolviendoKey === asigItem.id && (
-                                                                                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
-                                                                                            <input 
-                                                                                                type="number" 
-                                                                                                min="1" 
-                                                                                                max={asigItem.cantidad} 
-                                                                                                value={cantDevolver} 
-                                                                                                onChange={e => setCantDevolver(e.target.value)} 
-                                                                                                className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
-                                                                                            />
-                                                                                            <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
-                                                                                        </div>
-                                                                                        <div className="flex items-center gap-2">
-                                                                                            <button onClick={() => handleEjecutarDevolucionAgrupada(asigItem)} className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black hover:bg-emerald-700 cursor-pointer">Confirmar</button>
-                                                                                            <button onClick={() => setDevolviendoKey(null)} className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
-                                                                                        </div>
-                                                                                    </div>
-                                                                                )}
+                                                            return (
+                                                                <div key={nombreColaborador} className="bg-slate-900/80 border border-slate-800/80 p-4 rounded-2xl space-y-3">
+                                                                    {/* Cabecera del Colaborador */}
+                                                                    <div className="font-black text-amber-400 text-sm flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                                                                        <div className="flex items-center gap-2.5">
+                                                                            <Avatar nombre={nombreColaborador} />
+                                                                            <div>
+                                                                                <span className="text-white font-extrabold">{nombreColaborador}</span>
+                                                                                <span className="text-xs text-slate-400 font-bold ml-2">({totalUnidadesColab} equipos activos)</span>
                                                                             </div>
-                                                                        );
-                                                                    })}
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-2">
+                                                                            <button 
+                                                                                onClick={() => toggleColaboradorExpandido(nombreColaborador)}
+                                                                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer transition-all active:translate-y-0.5"
+                                                                            >
+                                                                                {estaColabExpandido ? '📂 Ocultar Equipos' : '👁️ Ver Equipos'}
+                                                                            </button>
+                                                                            <button 
+                                                                                onClick={() => handleDevolverTodoColaborador(nombreColaborador)}
+                                                                                className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600/20 text-rose-300 border border-rose-500/30 hover:bg-rose-600 hover:text-white cursor-pointer transition-all active:translate-y-0.5"
+                                                                            >
+                                                                                🔄 Devolver Todo
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Lista Desplegable de Equipos por Colaborador */}
+                                                                    {estaColabExpandido && (
+                                                                        <div className="space-y-2.5 pt-2 border-t border-slate-800/80">
+                                                                            {prodsAsignados.map(asigItem => {
+                                                                                const { fechaStr, horaStr } = formatearFechaClean(asigItem);
+                                                                                let obsItemLimpia = asigItem.observaciones || 'Sin observaciones';
+                                                                                obsItemLimpia = obsItemLimpia.replace(/\(LOTE-\d+\)/g, '').replace(/LOTE-\d+/g, '').trim();
+                                                                                if (!obsItemLimpia) obsItemLimpia = 'Sin observaciones';
+
+                                                                                return (
+                                                                                    <div key={asigItem.id} className="bg-slate-950 border border-slate-800/80 p-3.5 rounded-xl space-y-2.5">
+                                                                                        <div className="flex justify-between items-start gap-2">
+                                                                                            <div>
+                                                                                                <div className="font-extrabold text-xs text-indigo-300">📦 {asigItem.producto} (<span className="font-mono">{asigItem.sku}</span>)</div>
+                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-0.5">
+                                                                                                    Cantidad: <strong className="text-white">{asigItem.cantidad} unidades</strong>
+                                                                                                </div>
+                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-2">
+                                                                                                    <span>Asignado el:</span>
+                                                                                                    <span className="bg-slate-800 px-2 py-0.5 rounded text-slate-200 font-bold">📅 {fechaStr}</span>
+                                                                                                    <span className="bg-slate-900 px-1.5 py-0.5 rounded text-slate-400 font-mono">⏰ {horaStr}</span>
+                                                                                                </div>
+                                                                                                <div className="text-[11px] text-slate-400 font-semibold mt-1">
+                                                                                                    Obs: <span className="text-slate-300 font-normal">{obsItemLimpia}</span>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <button 
+                                                                                                    onClick={() => { setEditandoObsKey(asigItem.id); setNuevaObsTexto(obsItemLimpia !== 'Sin observaciones' ? obsItemLimpia : ''); }} 
+                                                                                                    className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/20 cursor-pointer transition-all"
+                                                                                                >
+                                                                                                    ✎ Editar Obs.
+                                                                                                </button>
+                                                                                                <button 
+                                                                                                    onClick={() => { setDevolviendoKey(asigItem.id); setCantDevolver(1); }} 
+                                                                                                    className="px-2.5 py-1 rounded-lg text-xs font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer transition-all"
+                                                                                                >
+                                                                                                    Devolver
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
+
+                                                                                        {editandoObsKey === asigItem.id && (
+                                                                                            <div className="pt-2 border-t border-slate-800 flex items-center gap-2">
+                                                                                                <input 
+                                                                                                    type="text" 
+                                                                                                    placeholder="Escribe la observación..." 
+                                                                                                    value={nuevaObsTexto} 
+                                                                                                    onChange={e => setNuevaObsTexto(e.target.value)} 
+                                                                                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white outline-none"
+                                                                                                />
+                                                                                                <button onClick={() => handleGuardarObservacionEditada(asigItem)} className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black cursor-pointer">Guardar</button>
+                                                                                                <button onClick={() => setEditandoObsKey(null)} className="px-2 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
+                                                                                            </div>
+                                                                                        )}
+
+                                                                                        {devolviendoKey === asigItem.id && (
+                                                                                            <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2">
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <span className="text-[11px] text-slate-400 font-bold">Devolver:</span>
+                                                                                                    <input 
+                                                                                                        type="number" 
+                                                                                                        min="1" 
+                                                                                                        max={asigItem.cantidad} 
+                                                                                                        value={cantDevolver} 
+                                                                                                        onChange={e => setCantDevolver(e.target.value)} 
+                                                                                                        className="w-16 px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-black text-white text-center" 
+                                                                                                    />
+                                                                                                    <span className="text-[11px] text-slate-500 font-semibold">(Max: {asigItem.cantidad})</span>
+                                                                                                </div>
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <button onClick={() => handleEjecutarDevolucionAgrupada(asigItem)} className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg text-xs font-black hover:bg-emerald-700 cursor-pointer">Confirmar</button>
+                                                                                                    <button onClick={() => setDevolviendoKey(null)} className="px-2.5 py-1 bg-slate-800 text-slate-400 rounded-lg text-xs font-black cursor-pointer">✕</button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
-                                                            </div>
-                                                        ))
+                                                            );
+                                                        })
                                                     )
                                                 )}
                                             </div>
