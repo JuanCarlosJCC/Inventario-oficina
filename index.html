@@ -110,11 +110,15 @@
 
         const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-        // Sanitización Anti-Hackers corregida
+        // ==========================================
+        // 🛡️ FUNCION DE SANITIZACIÓN ANTI-HACKERS
+        // ==========================================
         const sanitizeInput = (input) => {
             if (typeof input !== 'string') return input;
+            // 1. Elimina etiquetas HTML y scripts maliciosos (XSS)
             let clean = input.replace(/<[^>]*>?/gm, '');
-            if (/^[=+\-@].*$/.test(clean)) {
+            // 2. Previene inyección de fórmulas en CSV/Excel (=, +, -, @)
+            if (/^[=+\-@]/.*$/.test(clean)) {
                 clean = "'" + clean;
             }
             return clean.trim();
@@ -205,11 +209,51 @@
             
             const [busquedaInput, setBusquedaInput] = useState('');
             const [busqueda, setBusqueda] = useState('');
+            const [filtroCategoria, setFiltroCategoria] = useState('TODAS');
 
+            const [modalAbierto, setModalAbierto] = useState(false);
+            const [seccionSeleccionada, setSeccionSeleccionada] = useState(null);
             const [tabActiva, setTabActiva] = useState('asignar');
+            const [mostrarHistorial, setMostrarHistorial] = useState(true);
             const [toast, setToast] = useState({ show: false, message: '', type: 'success', key: 0 });
 
+            const [lotesExpandidosMap, setLotesExpandidosMap] = useState({});
+            const [colaboradoresExpandidosMap, setColaboradoresExpandidosMap] = useState({});
+
+            const [devolviendoKey, setDevolviendoKey] = useState(null);
+            const [cantDevolver, setCantDevolver] = useState(1);
+            const [editandoObsKey, setEditandoObsKey] = useState(null);
+            const [nuevaObsTexto, setNuevaObsTexto] = useState('');
+            const [creandoCategoria, setCreandoCategoria] = useState(false);
+            const [nuevaCatNombre, setNuevaCatNombre] = useState('');
+            const [creandoCargo, setCreandoCargo] = useState(false);
+            const [nuevoCargoNombre, setNuevoCargoNombre] = useState('');
+
             const [formProducto, setFormProducto] = useState({ categoria: '', producto: '', cantidad: '', observaciones: '' });
+            const [formRestock, setFormRestock] = useState({ sku: '', cantidadExtra: '' });
+            const [skuADeshabilitar, setSkuADeshabilitar] = useState('');
+            const [formPersonal, setFormPersonal] = useState({ nombre: '', cargo: '' });
+            
+            const [formNuevoUsuario, setFormNuevoUsuario] = useState({
+                username: '',
+                password: '',
+                nombre: '',
+                rol: 'OPERADOR',
+                permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
+            });
+
+            const [usuarioEditando, setUsuarioEditando] = useState(null);
+            const [formEditarUsuario, setFormEditarUsuario] = useState({ 
+                nombre: '', 
+                username: '', 
+                password: '', 
+                rol: 'OPERADOR',
+                permisos: { asignar: true, productos: true, deshabilitados: true, personal: true } 
+            });
+
+            const [prodSeleccionadosMap, setProdSeleccionadosMap] = useState({});
+            const [personalSeleccionados, setPersonalSeleccionados] = useState([]);
+            const [obsAsignacion, setObsAsignacion] = useState('');
 
             useEffect(() => {
                 const timer = setTimeout(() => {
@@ -244,8 +288,20 @@
                     setProductos(prodData || []);
                     setPersonalList(persData || []);
                     setUsuariosList(userData || []);
-                    setCategoriasList(catData || []);
-                    setCargosList(cargoData || []);
+                    
+                    if (catData && catData.length > 0) {
+                        setCategoriasList(catData);
+                    } else if (prodData) {
+                        const unicas = Array.from(new Set(prodData.map(p => p.categoria).filter(Boolean)));
+                        setCategoriasList(unicas.map((c, i) => ({ id: i + 1, nombre: c })));
+                    }
+
+                    if (cargoData && cargoData.length > 0) {
+                        setCargosList(cargoData);
+                    } else if (persData) {
+                        const unicos = Array.from(new Set(persData.map(p => p.cargo).filter(Boolean)));
+                        setCargosList(unicos.map((c, i) => ({ id: i + 1, nombre: c })));
+                    }
                 } catch (error) {
                     console.error('Error al cargar datos:', error);
                 }
@@ -257,9 +313,23 @@
                 if (sesionGuardada) {
                     const userObj = JSON.parse(sesionGuardada);
                     setUsuarioSesion(userObj);
+                    ajustarTabInicial(userObj);
                 }
                 fetchData();
             }, [fetchData]);
+
+            const ajustarTabInicial = (user) => {
+                if (!user) return;
+                if (user.rol === 'ADMIN_PRINCIPAL') {
+                    setTabActiva('asignar');
+                    return;
+                }
+                const p = user.permisos || {};
+                if (p.asignar) setTabActiva('asignar');
+                else if (p.productos) setTabActiva('productos');
+                else if (p.deshabilitados) setTabActiva('deshabilitados');
+                else if (p.personal) setTabActiva('personal');
+            };
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -282,6 +352,7 @@
 
                     setUsuarioSesion(data);
                     localStorage.setItem('sesion_inventario', JSON.stringify(data));
+                    ajustarTabInicial(data);
                     mostrarToast(`Bienvenido/a, ${data.nombre}`);
                 } catch (err) {
                     setLoginError('Error de conexión con el servidor.');
@@ -293,10 +364,198 @@
                 localStorage.removeItem('sesion_inventario');
             };
 
+            const handleCrearUsuario = async (e) => {
+                e.preventDefault();
+                const nuevoUserObj = {
+                    username: sanitizeInput(formNuevoUsuario.username),
+                    password: sanitizeInput(formNuevoUsuario.password),
+                    nombre: sanitizeInput(formNuevoUsuario.nombre),
+                    rol: formNuevoUsuario.rol,
+                    permisos: formNuevoUsuario.permisos
+                };
+                try {
+                    const { data, error } = await supabase.from('usuarios').insert([nuevoUserObj]).select();
+
+                    if (error) {
+                        mostrarToast(`Error: ${error.message}`, 'error');
+                    } else {
+                        mostrarToast('Usuario registrado con éxito.');
+                        if (data && data[0]) {
+                            setUsuariosList(prev => [...prev, data[0]]);
+                        } else {
+                            fetchData();
+                        }
+                        setFormNuevoUsuario({
+                            username: '',
+                            password: '',
+                            nombre: '',
+                            rol: 'OPERADOR',
+                            permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
+                        });
+                    }
+                } catch (err) {
+                    mostrarToast('Error al crear usuario.', 'error');
+                }
+            };
+
+            const handleIniciarEdicionUsuario = useCallback((user) => {
+                setUsuarioEditando(user);
+                setFormEditarUsuario({
+                    nombre: user.nombre,
+                    username: user.username,
+                    password: user.password,
+                    rol: user.rol,
+                    permisos: user.permisos || { asignar: true, productos: true, deshabilitados: true, personal: true }
+                });
+            }, []);
+
+            const handleGuardarCambiosUsuario = async (e) => {
+                e.preventDefault();
+                if (!usuarioEditando) return;
+
+                const datosActualizar = {
+                    nombre: sanitizeInput(formEditarUsuario.nombre),
+                    username: sanitizeInput(formEditarUsuario.username),
+                    password: sanitizeInput(formEditarUsuario.password),
+                    rol: formEditarUsuario.rol,
+                    permisos: formEditarUsuario.permisos
+                };
+
+                const anteriorEstado = [...usuariosList];
+                setUsuariosList(prev => prev.map(u => u.id === usuarioEditando.id ? { ...u, ...datosActualizar } : u));
+
+                try {
+                    const { error } = await supabase
+                        .from('usuarios')
+                        .update(datosActualizar)
+                        .eq('id', usuarioEditando.id);
+
+                    if (error) {
+                        mostrarToast(`Error: ${error.message}`, 'error');
+                        setUsuariosList(anteriorEstado);
+                    } else {
+                        mostrarToast('Usuario y permisos actualizados correctamente.');
+                        if (usuarioEditando.id === usuarioSesion.id) {
+                            const sesionActualizada = { ...usuarioSesion, ...datosActualizar };
+                            setUsuarioSesion(sesionActualizada);
+                            localStorage.setItem('sesion_inventario', JSON.stringify(sesionActualizada));
+                        }
+                        setUsuarioEditando(null);
+                    }
+                } catch (err) {
+                    mostrarToast('Error al guardar datos.', 'error');
+                    setUsuariosList(anteriorEstado);
+                }
+            };
+
+            const handleImportarCSV = useCallback(async (e) => {
+                const archivo = e.target.files[0];
+                if (!archivo) return;
+
+                const lector = new FileReader();
+                lector.onload = async (evento) => {
+                    try {
+                        const texto = evento.target.result;
+                        const lineas = texto.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                        if (lineas.length < 2) {
+                            mostrarToast('El archivo está vacío o no tiene un formato válido.', 'error');
+                            return;
+                        }
+
+                        const { data: dbProductos } = await supabase.from('productos').select('*');
+                        const prodActuales = dbProductos || [];
+
+                        let maxSKUNum = 0;
+                        prodActuales.forEach(p => {
+                            if (p.sku && p.sku.startsWith('PROD-')) {
+                                const num = parseInt(p.sku.replace('PROD-', ''), 10);
+                                if (!isNaN(num) && num > maxSKUNum) maxSKUNum = num;
+                            }
+                        });
+
+                        const filas = lineas.slice(1);
+                        const promesasUpdates = [];
+                        const nuevosInserts = [];
+                        let creadosCount = 0;
+                        let actualizadosCount = 0;
+
+                        for (const fila of filas) {
+                            const separador = fila.includes(';') ? ';' : ',';
+                            const columnas = fila.split(separador).map(c => sanitizeInput(c.replace(/^["']|["']$/g, '')));
+                            
+                            if (columnas.length >= 3) {
+                                let sku = '', categoria = '', productoNombre = '', cantidadStr = '', observaciones = '', estadoStr = '';
+
+                                if (columnas.length >= 6) {
+                                    [sku, categoria, productoNombre, cantidadStr, observaciones, estadoStr] = columnas;
+                                } else if (columnas.length >= 5) {
+                                    [sku, categoria, productoNombre, cantidadStr, observaciones] = columnas;
+                                } else if (columnas.length >= 4) {
+                                    [sku, categoria, productoNombre, cantidadStr] = columnas;
+                                } else {
+                                    [categoria, productoNombre, cantidadStr] = columnas;
+                                }
+
+                                const nuevaCant = parseInt(cantidadStr, 10);
+                                const skuNorm = sku ? sku.toUpperCase() : '';
+                                const esActivo = estadoStr ? estadoStr.toUpperCase() !== 'DESHABILITADO' : true;
+
+                                if (productoNombre && !isNaN(nuevaCant) && nuevaCant >= 0) {
+                                    const filasExistentesMismoSKU = prodActuales.filter(p => p.sku === skuNorm);
+
+                                    if (filasExistentesMismoSKU.length > 0) {
+                                        const filaBase = filasExistentesMismoSKU[0];
+                                        promesasUpdates.push(
+                                            supabase.from('productos').update({
+                                                categoria: categoria || filaBase.categoria,
+                                                producto: productoNombre,
+                                                cantidad: nuevaCant,
+                                                observaciones: observaciones !== undefined ? observaciones : filaBase.observaciones,
+                                                activo: esActivo
+                                            }).eq('id', filaBase.id)
+                                        );
+                                        actualizadosCount++;
+                                    } else {
+                                        maxSKUNum++;
+                                        const nuevoSKU = skuNorm || `PROD-${String(maxSKUNum).padStart(3, '0')}`;
+
+                                        nuevosInserts.push({
+                                            sku: nuevoSKU,
+                                            categoria: categoria || 'General',
+                                            producto: productoNombre,
+                                            cantidad: nuevaCant,
+                                            observaciones: observaciones || 'Importado vía CSV',
+                                            personal_asignado: '',
+                                            activo: esActivo,
+                                            fecha_asignacion: new Date().toISOString()
+                                        });
+                                        creadosCount++;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (nuevosInserts.length > 0) {
+                            promesasUpdates.push(supabase.from('productos').insert(nuevosInserts));
+                        }
+
+                        await Promise.all(promesasUpdates);
+                        await fetchData();
+                        mostrarToast(`Catálogo sincronizado: ${actualizadosCount} actualizados, ${creadosCount} creados.`);
+                        e.target.value = '';
+                    } catch (err) {
+                        console.error(err);
+                        mostrarToast('Error al procesar el archivo CSV.', 'error');
+                    }
+                };
+                lector.readAsText(archivo, 'UTF-8');
+            }, [fetchData, mostrarToast]);
+
             const handleSaveProducto = async (e) => {
                 e.preventDefault();
+                const nuevoSKU = generarSKU();
                 const nuevoItem = {
-                    sku: `PROD-${Date.now().toString().slice(-4)}`,
+                    sku: nuevoSKU,
                     categoria: sanitizeInput(formProducto.categoria),
                     producto: sanitizeInput(formProducto.producto),
                     cantidad: Number(formProducto.cantidad),
@@ -312,12 +571,90 @@
                         setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '' });
                         if (data && data[0]) setProductos(prev => [data[0], ...prev]);
                         else fetchData();
-                        mostrarToast('Producto registrado correctamente.');
+                        mostrarToast(`Producto registrado. SKU: ${nuevoSKU}`);
                     }
                 } catch (err) {
                     mostrarToast('Error al registrar producto.', 'error');
                 }
             };
+
+            const tienePermiso = useCallback((clave) => {
+                if (!usuarioSesion) return false;
+                if (usuarioSesion.rol === 'ADMIN_PRINCIPAL') return true;
+                return !!usuarioSesion.permisos?.[clave];
+            }, [usuarioSesion]);
+
+            const formatearFechaClean = useCallback((item) => {
+                const rawFecha = item.fecha_asignacion || item.created_at || item.fecha;
+                if (!rawFecha) return { fechaStr: 'S/F', horaStr: '--:--' };
+                const fecha = new Date(rawFecha);
+                if (isNaN(fecha.getTime())) return { fechaStr: 'S/F', horaStr: '--:--' };
+
+                const fechaStr = fecha.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+                const horaStr = fecha.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+                return { fechaStr, horaStr };
+            }, []);
+
+            const productosActivos = useMemo(() => productos.filter(p => p.activo !== false), [productos]);
+            
+            const productosUnicosGlobalList = useMemo(() => {
+                return Object.values(
+                    productos.reduce((acc, curr) => {
+                        const key = curr.sku;
+                        if (!acc[key]) acc[key] = { sku: curr.sku, producto: curr.producto, cantidadTotal: 0, cantidadLibre: 0, cantidadUso: 0, cantidadDeshabilitada: 0 };
+                        const cant = Number(curr.cantidad) || 0;
+                        acc[key].cantidadTotal += cant;
+
+                        if (curr.activo === false) {
+                            acc[key].cantidadDeshabilitada += cant;
+                        } else if (!curr.personal_asignado || curr.personal_asignado.trim() === '') {
+                            acc[key].cantidadLibre += cant;
+                        } else {
+                            acc[key].cantidadUso += cant;
+                        }
+                        return acc;
+                    }, {})
+                ).sort((a, b) => a.sku.localeCompare(b.sku));
+            }, [productos]);
+
+            const totalProductosSKUs = productosUnicosGlobalList.length;
+            const totalUnidades = useMemo(() => productos.reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
+
+            const unidadesSinAsignar = useMemo(() => productosActivos.filter(p => !p.personal_asignado || p.personal_asignado.trim() === '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
+            const unidadesEnUso = useMemo(() => productosActivos.filter(p => p.personal_asignado && p.personal_asignado.trim() !== '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
+            const unidadesDeshabilitadas = useMemo(() => productos.filter(p => p.activo === false).reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
+
+            const productosLibresList = useMemo(() => {
+                return Object.values(
+                    productosActivos
+                        .filter(p => !p.personal_asignado || p.personal_asignado.trim() === '')
+                        .reduce((acc, curr) => {
+                            if (!acc[curr.sku]) {
+                                acc[curr.sku] = { ...curr, id: curr.id, cantidad: Number(curr.cantidad) || 0, ids: [curr.id] };
+                            } else {
+                                acc[curr.sku].cantidad += Number(curr.cantidad) || 0;
+                                acc[curr.sku].ids.push(curr.id);
+                            }
+                            return acc;
+                        }, {})
+                ).sort((a, b) => a.sku.localeCompare(b.sku));
+            }, [productosActivos]);
+
+            const generarSKU = useCallback(() => {
+                const skusExistentes = new Set();
+                productos.forEach(p => {
+                    if (p.sku && p.sku.startsWith('PROD-')) {
+                        const num = parseInt(p.sku.replace('PROD-', ''), 10);
+                        if (!isNaN(num)) skusExistentes.add(num);
+                    }
+                });
+                let nuevoNum = 1;
+                while (skusExistentes.has(nuevoNum)) nuevoNum++;
+                return `PROD-${String(nuevoNum).padStart(3, '0')}`;
+            }, [productos]);
+
+            const esAdminPrincipal = usuarioSesion && usuarioSesion.rol === 'ADMIN_PRINCIPAL';
 
             if (!usuarioSesion) {
                 return (
@@ -418,6 +755,7 @@
                             </div>
                         </header>
 
+                        {/* PESTAÑA: PRODUCTOS */}
                         <div className="bg-slate-900/60 border-slate-800/80 text-slate-100 p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-2xl">
                             <h2 className="text-xl font-black flex items-center gap-3"><span className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-sm">📦</span> Registrar Producto Protegido</h2>
                             <form onSubmit={handleSaveProducto} className="space-y-4">
