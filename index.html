@@ -118,7 +118,7 @@
             // 1. Elimina etiquetas HTML y scripts maliciosos (XSS)
             let clean = input.replace(/<[^>]*>?/gm, '');
             // 2. Previene inyección de fórmulas en CSV/Excel (=, +, -, @)
-            if (/^[=+\-@]/.*$/.test(clean)) {
+            if (/^[=+\-@].*$/.test(clean)) {
                 clean = "'" + clean;
             }
             return clean.trim();
