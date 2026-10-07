@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SICI - Control de Inventario</title>
+    <title>SICI - Control de Inventario (Airtable)</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React 18 Core -->
@@ -11,8 +11,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <!-- Babel Compiler -->
     <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
-    <!-- Supabase JS -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -102,10 +100,61 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef, useCallback, memo } = React;
 
-        const SUPABASE_URL = 'https://ghjcvvcibapzhryrdtte.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_Nejs0JlpzyGf5ALznlTSdA_969MDDH4';
+        // Configuración Airtable
+        const AIRTABLE_PAT = 'patFzdFijZKz9jsyA.d8ef7896b6689d04520e39d3fbd4f0015765673717bd0c140ce3fb31425e61e1';
+        const AIRTABLE_BASE_ID = 'appojUCjsYrd0rAUa';
+        const PRODUCTOS_TABLE = 'tblVk5mf3H6GSSESU';
 
-        const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+        // Cliente API Helper para Airtable
+        const airtableFetch = async (tableNameOrId, method = 'GET', bodyData = null) => {
+            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}`;
+            const options = {
+                method,
+                headers: {
+                    'Authorization': `Bearer ${AIRTABLE_PAT}`,
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (bodyData) {
+                options.body = JSON.stringify(bodyData);
+            }
+            const res = await fetch(url, options);
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Airtable Error [${res.status}]: ${errorText}`);
+            }
+            return await res.json();
+        };
+
+        const airtableDelete = async (tableNameOrId, recordId) => {
+            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}/${recordId}`;
+            const res = await fetch(url, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${AIRTABLE_PAT}` }
+            });
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Airtable Delete Error: ${errorText}`);
+            }
+            return await res.json();
+        };
+
+        const airtableUpdate = async (tableNameOrId, recordId, fields) => {
+            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}/${recordId}`;
+            const res = await fetch(url, {
+                method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${AIRTABLE_PAT}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ fields })
+            });
+            if (!res.ok) {
+                const errorText = await res.text();
+                throw new Error(`Airtable Update Error: ${errorText}`);
+            }
+            return await res.json();
+        };
 
         const Tooltip = memo(({ text, position = 'top', children }) => {
             const [show, setShow] = useState(false);
@@ -285,25 +334,43 @@
             }, []);
 
             const fetchData = useCallback(async () => {
-                if (!supabase) return;
                 setLoading(true);
                 try {
+                    const fetchAirtableRecords = async (table) => {
+                        try {
+                            const res = await airtableFetch(table);
+                            return res.records.map(r => {
+                                let permisos = r.fields.permisos;
+                                if (permisos && typeof permisos === 'string') {
+                                    try { permisos = JSON.parse(permisos); } catch(e) {}
+                                }
+                                return {
+                                    id: r.id,
+                                    ...r.fields,
+                                    permisos
+                                };
+                            });
+                        } catch (e) {
+                            return [];
+                        }
+                    };
+
                     const [
-                        { data: prodData },
-                        { data: persData },
-                        { data: userData },
-                        { data: catData },
-                        { data: cargoData },
-                        { data: rolesData },
-                        { data: seriesData }
+                        prodData,
+                        persData,
+                        userData,
+                        catData,
+                        cargoData,
+                        rolesData,
+                        seriesData
                     ] = await Promise.all([
-                        supabase.from('productos').select('*').order('id', { ascending: false }),
-                        supabase.from('personal').select('*').order('nombre', { ascending: true }),
-                        supabase.from('usuarios').select('*').order('id', { ascending: true }),
-                        supabase.from('categorias').select('*').order('nombre', { ascending: true }),
-                        supabase.from('cargos').select('*').order('nombre', { ascending: true }),
-                        supabase.from('roles').select('*').order('nombre', { ascending: true }),
-                        supabase.from('series').select('*').order('nombre', { ascending: true })
+                        fetchAirtableRecords(PRODUCTOS_TABLE),
+                        fetchAirtableRecords('personal'),
+                        fetchAirtableRecords('usuarios'),
+                        fetchAirtableRecords('categorias'),
+                        fetchAirtableRecords('cargos'),
+                        fetchAirtableRecords('roles'),
+                        fetchAirtableRecords('series')
                     ]);
 
                     setProductos(prodData || []);
@@ -315,23 +382,23 @@
                         setCategoriasList(catData);
                     } else if (prodData) {
                         const unicas = Array.from(new Set(prodData.map(p => p.categoria).filter(Boolean)));
-                        setCategoriasList(unicas.map((c, i) => ({ id: i + 1, nombre: c })));
+                        setCategoriasList(unicas.map((c, i) => ({ id: `cat_${i + 1}`, nombre: c })));
                     }
 
                     if (cargoData && cargoData.length > 0) {
                         setCargosList(cargoData);
                     } else if (persData) {
                         const unicos = Array.from(new Set(persData.map(p => p.cargo).filter(Boolean)));
-                        setCargosList(unicos.map((c, i) => ({ id: i + 1, nombre: c })));
+                        setCargosList(unicos.map((c, i) => ({ id: `cargo_${i + 1}`, nombre: c })));
                     }
 
                     if (rolesData && rolesData.length > 0) {
                         setRolesList(rolesData);
                     } else {
-                        setRolesList([{ id: 1, nombre: 'OPERADOR' }, { id: 2, nombre: 'ADMINISTRADOR' }]);
+                        setRolesList([{ id: 'r1', nombre: 'OPERADOR' }, { id: 'r2', nombre: 'ADMINISTRADOR' }]);
                     }
                 } catch (error) {
-                    console.error('Error al cargar datos:', error);
+                    console.error('Error al cargar datos de Airtable:', error);
                 }
                 setLoading(false);
             }, []);
@@ -363,16 +430,17 @@
                 e.preventDefault();
                 setLoginError('');
                 try {
-                    const { data, error } = await supabase
-                        .from('usuarios')
-                        .select('*')
-                        .eq('username', loginUser.trim())
-                        .eq('password', loginPass.trim())
-                        .single();
+                    const res = await airtableFetch('usuarios');
+                    const users = res.records.map(r => ({ id: r.id, ...r.fields }));
+                    const data = users.find(u => u.username === loginUser.trim() && u.password === loginPass.trim());
 
-                    if (error || !data) {
+                    if (!data) {
                         setLoginError('Usuario o contraseña incorrectos.');
                         return;
+                    }
+
+                    if (data.permisos && typeof data.permisos === 'string') {
+                        try { data.permisos = JSON.parse(data.permisos); } catch(e) {}
                     }
 
                     setUsuarioSesion(data);
@@ -380,7 +448,7 @@
                     ajustarTabInicial(data);
                     mostrarToast(`Bienvenido/a, ${data.nombre}`);
                 } catch (err) {
-                    setLoginError('Error de conexión con el servidor.');
+                    setLoginError('Error de conexión con el servidor de Airtable.');
                 }
             };
 
@@ -396,28 +464,19 @@
                     password: formNuevoUsuario.password.trim(),
                     nombre: formNuevoUsuario.nombre.trim(),
                     rol: formNuevoUsuario.rol,
-                    permisos: formNuevoUsuario.permisos
+                    permisos: JSON.stringify(formNuevoUsuario.permisos)
                 };
                 try {
-                    const { data, error } = await supabase.from('usuarios').insert([nuevoUserObj]).select();
-
-                    if (error) {
-                        mostrarToast(`Error: ${error.message}`, 'error');
-                    } else {
-                        mostrarToast('Usuario registrado con éxito.');
-                        if (data && data[0]) {
-                            setUsuariosList(prev => [...prev, data[0]]);
-                        } else {
-                            fetchData();
-                        }
-                        setFormNuevoUsuario({
-                            username: '',
-                            password: '',
-                            nombre: '',
-                            rol: 'OPERADOR',
-                            permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
-                        });
-                    }
+                    const res = await airtableFetch('usuarios', 'POST', { fields: nuevoUserObj });
+                    mostrarToast('Usuario registrado con éxito.');
+                    fetchData();
+                    setFormNuevoUsuario({
+                        username: '',
+                        password: '',
+                        nombre: '',
+                        rol: 'OPERADOR',
+                        permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
+                    });
                 } catch (err) {
                     mostrarToast('Error al crear usuario.', 'error');
                 }
@@ -443,33 +502,21 @@
                     username: formEditarUsuario.username.trim(),
                     password: formEditarUsuario.password.trim(),
                     rol: formEditarUsuario.rol,
-                    permisos: formEditarUsuario.permisos
+                    permisos: JSON.stringify(formEditarUsuario.permisos)
                 };
 
-                const anteriorEstado = [...usuariosList];
-                setUsuariosList(prev => prev.map(u => u.id === usuarioEditando.id ? { ...u, ...datosActualizar } : u));
-
                 try {
-                    const { error } = await supabase
-                        .from('usuarios')
-                        .update(datosActualizar)
-                        .eq('id', usuarioEditando.id);
-
-                    if (error) {
-                        mostrarToast(`Error: ${error.message}`, 'error');
-                        setUsuariosList(anteriorEstado);
-                    } else {
-                        mostrarToast('Usuario y permisos actualizados correctamente.');
-                        if (usuarioEditando.id === usuarioSesion.id) {
-                            const sesionActualizada = { ...usuarioSesion, ...datosActualizar };
-                            setUsuarioSesion(sesionActualizada);
-                            localStorage.setItem('sesion_inventario', JSON.stringify(sesionActualizada));
-                        }
-                        setUsuarioEditando(null);
+                    await airtableUpdate('usuarios', usuarioEditando.id, datosActualizar);
+                    mostrarToast('Usuario y permisos actualizados correctamente.');
+                    if (usuarioEditando.id === usuarioSesion.id) {
+                        const sesionActualizada = { ...usuarioSesion, ...datosActualizar, permisos: formEditarUsuario.permisos };
+                        setUsuarioSesion(sesionActualizada);
+                        localStorage.setItem('sesion_inventario', JSON.stringify(sesionActualizada));
                     }
+                    setUsuarioEditando(null);
+                    fetchData();
                 } catch (err) {
                     mostrarToast('Error al guardar datos.', 'error');
-                    setUsuariosList(anteriorEstado);
                 }
             };
 
@@ -480,23 +527,12 @@
                     [permisoKey]: !permisosAnteriores[permisoKey]
                 };
 
-                setUsuariosList(prev => prev.map(u => u.id === user.id ? { ...u, permisos: nuevosPermisos } : u));
-
                 try {
-                    const { error } = await supabase
-                        .from('usuarios')
-                        .update({ permisos: nuevosPermisos })
-                        .eq('id', user.id);
-
-                    if (error) {
-                        mostrarToast('Error al cambiar permisos.', 'error');
-                        fetchData();
-                    } else {
-                        mostrarToast(`Permisos de ${user.nombre} actualizados.`);
-                    }
+                    await airtableUpdate('usuarios', user.id, { permisos: JSON.stringify(nuevosPermisos) });
+                    mostrarToast(`Permisos de ${user.nombre} actualizados.`);
+                    fetchData();
                 } catch (err) {
                     mostrarToast('Error al cambiar permisos.', 'error');
-                    fetchData();
                 }
             }, [fetchData, mostrarToast]);
 
@@ -507,19 +543,12 @@
                 }
                 if (!window.confirm(`¿Eliminar al usuario "${nombre}"?`)) return;
 
-                setUsuariosList(prev => prev.filter(u => u.id !== idUser));
-
                 try {
-                    const { error } = await supabase.from('usuarios').delete().eq('id', idUser);
-                    if (error) {
-                        mostrarToast('Error al eliminar usuario.', 'error');
-                        fetchData();
-                    } else {
-                        mostrarToast('Usuario eliminado.');
-                    }
+                    await airtableDelete('usuarios', idUser);
+                    mostrarToast('Usuario eliminado.');
+                    fetchData();
                 } catch (err) {
                     mostrarToast('Error al eliminar usuario.', 'error');
-                    fetchData();
                 }
             }, [usuarioSesion, fetchData, mostrarToast]);
 
@@ -541,7 +570,7 @@
                 return { fechaStr, horaStr };
             }, []);
 
-            const productosActivos = useMemo(() => productos.filter(p => p.activo !== false), [productos]);
+            const productosActivos = useMemo(() => productos.filter(p => p.activo !== false && p.activo !== 'false'), [productos]);
 
             const productosUnicosGlobalList = useMemo(() => {
                 const mapPadres = {};
@@ -549,7 +578,7 @@
                 productos.forEach(curr => {
                     const sku = curr.sku;
                     const cant = Number(curr.cantidad) || 0;
-                    const serieKey = curr.serie ? curr.serie.trim().toUpperCase() : 'SIN_SERIE';
+                    const serieKey = curr.serie ? String(curr.serie).trim().toUpperCase() : 'SIN_SERIE';
 
                     if (!mapPadres[sku]) {
                         mapPadres[sku] = {
@@ -566,9 +595,11 @@
 
                     mapPadres[sku].cantidadTotal += cant;
 
-                    if (curr.activo === false) {
+                    const esInactivo = curr.activo === false || curr.activo === 'false';
+
+                    if (esInactivo) {
                         mapPadres[sku].cantidadDeshabilitada += cant;
-                    } else if (!curr.personal_asignado || curr.personal_asignado.trim() === '') {
+                    } else if (!curr.personal_asignado || String(curr.personal_asignado).trim() === '') {
                         mapPadres[sku].cantidadLibre += cant;
                     } else {
                         mapPadres[sku].cantidadUso += cant;
@@ -585,9 +616,9 @@
                     }
 
                     mapPadres[sku].seriesHijosMap[serieKey].cantidadTotal += cant;
-                    if (curr.activo === false) {
+                    if (esInactivo) {
                         mapPadres[sku].seriesHijosMap[serieKey].cantidadDeshabilitada += cant;
-                    } else if (!curr.personal_asignado || curr.personal_asignado.trim() === '') {
+                    } else if (!curr.personal_asignado || String(curr.personal_asignado).trim() === '') {
                         mapPadres[sku].seriesHijosMap[serieKey].cantidadLibre += cant;
                     } else {
                         mapPadres[sku].seriesHijosMap[serieKey].cantidadUso += cant;
@@ -599,7 +630,7 @@
                         ...padre,
                         seriesHijos: Object.values(padre.seriesHijosMap)
                     }))
-                    .sort((a, b) => a.sku.localeCompare(b.sku));
+                    .sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
             }, [productos]);
 
             const descargarInventarioCSV = useCallback(() => {
@@ -652,8 +683,8 @@
                             return;
                         }
 
-                        const { data: dbProductos } = await supabase.from('productos').select('*');
-                        const prodActuales = dbProductos || [];
+                        const resProd = await airtableFetch(PRODUCTOS_TABLE);
+                        const prodActuales = resProd.records.map(r => ({ id: r.id, ...r.fields }));
 
                         let maxSKUNum = 0;
                         prodActuales.forEach(p => {
@@ -664,8 +695,6 @@
                         });
 
                         const filas = lineas.slice(1);
-                        const promesasUpdates = [];
-                        const nuevosInserts = [];
                         let creadosCount = 0;
                         let actualizadosCount = 0;
 
@@ -697,30 +726,30 @@
                                     const coincidenciaEspecifica = prodActuales.find(p => p.sku === skuNorm && (p.serie || '').trim().toUpperCase() === (serieNorm || ''));
 
                                     if (coincidenciaEspecifica) {
-                                        promesasUpdates.push(
-                                            supabase.from('productos').update({
-                                                categoria: categoria || coincidenciaEspecifica.categoria,
-                                                producto: productoNombre,
-                                                cantidad: nuevaCant,
-                                                observaciones: observaciones !== undefined ? observaciones : coincidenciaEspecifica.observaciones,
-                                                activo: esActivo
-                                            }).eq('id', coincidenciaEspecifica.id)
-                                        );
+                                        await airtableUpdate(PRODUCTOS_TABLE, coincidenciaEspecifica.id, {
+                                            categoria: categoria || coincidenciaEspecifica.categoria,
+                                            producto: productoNombre,
+                                            cantidad: nuevaCant,
+                                            observaciones: observaciones !== undefined ? observaciones : coincidenciaEspecifica.observaciones,
+                                            activo: esActivo
+                                        });
                                         actualizadosCount++;
                                     } else {
                                         if (!skuNorm) maxSKUNum++;
                                         const nuevoSKU = skuNorm || `PROD-${String(maxSKUNum).padStart(3, '0')}`;
 
-                                        nuevosInserts.push({
-                                            sku: nuevoSKU,
-                                            categoria: categoria || 'General',
-                                            producto: productoNombre,
-                                            serie: serieNorm,
-                                            cantidad: nuevaCant,
-                                            observaciones: observaciones || 'Importado vía CSV',
-                                            personal_asignado: '',
-                                            activo: esActivo,
-                                            fecha_asignacion: new Date().toISOString()
+                                        await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                                            fields: {
+                                                sku: nuevoSKU,
+                                                categoria: categoria || 'General',
+                                                producto: productoNombre,
+                                                serie: serieNorm,
+                                                cantidad: nuevaCant,
+                                                observaciones: observaciones || 'Importado vía CSV',
+                                                personal_asignado: '',
+                                                activo: esActivo,
+                                                fecha_asignacion: new Date().toISOString()
+                                            }
                                         });
                                         creadosCount++;
                                     }
@@ -728,11 +757,6 @@
                             }
                         }
 
-                        if (nuevosInserts.length > 0) {
-                            promesasUpdates.push(supabase.from('productos').insert(nuevosInserts));
-                        }
-
-                        await Promise.all(promesasUpdates);
                         await fetchData();
                         mostrarToast(`Sincronización finalizada: ${actualizadosCount} actualizados, ${creadosCount} creados.`);
                         e.target.value = '';
@@ -747,13 +771,11 @@
             const handleGuardarNuevaSerie = async () => {
                 if (!nuevaSerieNombre.trim()) return;
                 try {
-                    const { data, error } = await supabase.from('series').insert([{ nombre: nuevaSerieNombre.trim().toUpperCase() }]).select();
-                    if (!error) {
-                        mostrarToast('Serie/Clasificación guardada con éxito.');
-                        if (data && data[0]) setSeriesList(prev => [...prev, data[0]]);
-                        setFormProducto(prev => ({ ...prev, serie: nuevaSerieNombre.trim().toUpperCase() }));
-                        setNuevaSerieNombre('');
-                    }
+                    await airtableFetch('series', 'POST', { fields: { nombre: nuevaSerieNombre.trim().toUpperCase() } });
+                    mostrarToast('Serie/Clasificación guardada con éxito.');
+                    setFormProducto(prev => ({ ...prev, serie: nuevaSerieNombre.trim().toUpperCase() }));
+                    setNuevaSerieNombre('');
+                    fetchData();
                 } catch (e) {
                     console.error(e);
                 }
@@ -762,16 +784,12 @@
             const handleEliminarSerieGlobal = async (idSerie, nombreSerie) => {
                 if (!window.confirm(`¿Eliminar la serie/clasificación "${nombreSerie}"?`)) return;
                 try {
-                    const { error } = await supabase.from('series').delete().eq('id', idSerie);
-                    if (!error) {
-                        setSeriesList(prev => prev.filter(s => s.id !== idSerie));
-                        if (formProducto.serie === nombreSerie) {
-                            setFormProducto(prev => ({ ...prev, serie: '' }));
-                        }
-                        mostrarToast(`Serie "${nombreSerie}" eliminada.`);
-                    } else {
-                        mostrarToast(`Error al eliminar: ${error.message}`, 'error');
+                    await airtableDelete('series', idSerie);
+                    setSeriesList(prev => prev.filter(s => s.id !== idSerie));
+                    if (formProducto.serie === nombreSerie) {
+                        setFormProducto(prev => ({ ...prev, serie: '' }));
                     }
+                    mostrarToast(`Serie "${nombreSerie}" eliminada.`);
                 } catch (e) {
                     console.error(e);
                 }
@@ -780,14 +798,12 @@
             const handleGuardarNuevaCategoria = async () => {
                 if (!nuevaCatNombre.trim()) return;
                 try {
-                    const { data, error } = await supabase.from('categorias').insert([{ nombre: nuevaCatNombre.trim() }]).select();
-                    if (!error) {
-                        mostrarToast('Categoría creada exitosamente.');
-                        if (data && data[0]) setCategoriasList(prev => [...prev, data[0]]);
-                        setFormProducto(prev => ({ ...prev, categoria: nuevaCatNombre.trim() }));
-                        setNuevaCatNombre('');
-                        setCreandoCategoria(false);
-                    }
+                    await airtableFetch('categorias', 'POST', { fields: { nombre: nuevaCatNombre.trim() } });
+                    mostrarToast('Categoría creada exitosamente.');
+                    setFormProducto(prev => ({ ...prev, categoria: nuevaCatNombre.trim() }));
+                    setNuevaCatNombre('');
+                    setCreandoCategoria(false);
+                    fetchData();
                 } catch (e) {
                     console.error(e);
                 }
@@ -796,16 +812,12 @@
             const handleEliminarCategoriaGlobal = async (idCat, nombreCat) => {
                 if (!window.confirm(`¿Eliminar la categoría "${nombreCat}"?`)) return;
                 try {
-                    const { error } = await supabase.from('categorias').delete().eq('id', idCat);
-                    if (!error) {
-                        setCategoriasList(prev => prev.filter(c => c.id !== idCat));
-                        if (formProducto.categoria === nombreCat) {
-                            setFormProducto(prev => ({ ...prev, categoria: '' }));
-                        }
-                        mostrarToast(`Categoría "${nombreCat}" eliminada.`);
-                    } else {
-                        mostrarToast('Error al eliminar categoría.', 'error');
+                    await airtableDelete('categorias', idCat);
+                    setCategoriasList(prev => prev.filter(c => c.id !== idCat));
+                    if (formProducto.categoria === nombreCat) {
+                        setFormProducto(prev => ({ ...prev, categoria: '' }));
                     }
+                    mostrarToast(`Categoría "${nombreCat}" eliminada.`);
                 } catch (e) {
                     console.error(e);
                 }
@@ -814,14 +826,12 @@
             const handleGuardarNuevoCargo = async () => {
                 if (!nuevoCargoNombre.trim()) return;
                 try {
-                    const { data, error } = await supabase.from('cargos').insert([{ nombre: nuevoCargoNombre.trim() }]).select();
-                    if (!error) {
-                        mostrarToast('Cargo creado exitosamente.');
-                        if (data && data[0]) setCargosList(prev => [...prev, data[0]]);
-                        setFormPersonal(prev => ({ ...prev, cargo: nuevoCargoNombre.trim() }));
-                        setNuevoCargoNombre('');
-                        setCreandoCargo(false);
-                    }
+                    await airtableFetch('cargos', 'POST', { fields: { nombre: nuevoCargoNombre.trim() } });
+                    mostrarToast('Cargo creado exitosamente.');
+                    setFormPersonal(prev => ({ ...prev, cargo: nuevoCargoNombre.trim() }));
+                    setNuevoCargoNombre('');
+                    setCreandoCargo(false);
+                    fetchData();
                 } catch (e) {
                     console.error(e);
                 }
@@ -830,16 +840,12 @@
             const handleEliminarCargoGlobal = async (idCargo, nombreCargo) => {
                 if (!window.confirm(`¿Eliminar el cargo "${nombreCargo}"?`)) return;
                 try {
-                    const { error } = await supabase.from('cargos').delete().eq('id', idCargo);
-                    if (!error) {
-                        setCargosList(prev => prev.filter(c => c.id !== idCargo));
-                        if (formPersonal.cargo === nombreCargo) {
-                            setFormPersonal(prev => ({ ...prev, cargo: '' }));
-                        }
-                        mostrarToast(`Cargo "${nombreCargo}" eliminado.`);
-                    } else {
-                        mostrarToast('Error al eliminar cargo.', 'error');
+                    await airtableDelete('cargos', idCargo);
+                    setCargosList(prev => prev.filter(c => c.id !== idCargo));
+                    if (formPersonal.cargo === nombreCargo) {
+                        setFormPersonal(prev => ({ ...prev, cargo: '' }));
                     }
+                    mostrarToast(`Cargo "${nombreCargo}" eliminado.`);
                 } catch (e) {
                     console.error(e);
                 }
@@ -848,14 +854,12 @@
             const handleGuardarNuevoRol = async () => {
                 if (!nuevoRolNombre.trim()) return;
                 try {
-                    const { data, error } = await supabase.from('roles').insert([{ nombre: nuevoRolNombre.trim().toUpperCase() }]).select();
-                    if (!error) {
-                        mostrarToast('Rol creado exitosamente.');
-                        if (data && data[0]) setRolesList(prev => [...prev, data[0]]);
-                        setFormNuevoUsuario(prev => ({ ...prev, rol: nuevoRolNombre.trim().toUpperCase() }));
-                        setNuevoRolNombre('');
-                        setCreandoRol(false);
-                    }
+                    await airtableFetch('roles', 'POST', { fields: { nombre: nuevoRolNombre.trim().toUpperCase() } });
+                    mostrarToast('Rol creado exitosamente.');
+                    setFormNuevoUsuario(prev => ({ ...prev, rol: nuevoRolNombre.trim().toUpperCase() }));
+                    setNuevoRolNombre('');
+                    setCreandoRol(false);
+                    fetchData();
                 } catch (e) {
                     console.error(e);
                 }
@@ -868,16 +872,12 @@
                 }
                 if (!window.confirm(`¿Eliminar el rol "${nombreRol}"?`)) return;
                 try {
-                    const { error } = await supabase.from('roles').delete().eq('id', idRol);
-                    if (!error) {
-                        setRolesList(prev => prev.filter(r => r.id !== idRol));
-                        if (formNuevoUsuario.rol === nombreRol) {
-                            setFormNuevoUsuario(prev => ({ ...prev, rol: 'OPERADOR' }));
-                        }
-                        mostrarToast(`Rol "${nombreRol}" eliminado correctamente.`);
-                    } else {
-                        mostrarToast('Error al eliminar rol.', 'error');
+                    await airtableDelete('roles', idRol);
+                    setRolesList(prev => prev.filter(r => r.id !== idRol));
+                    if (formNuevoUsuario.rol === nombreRol) {
+                        setFormNuevoUsuario(prev => ({ ...prev, rol: 'OPERADOR' }));
                     }
+                    mostrarToast(`Rol "${nombreRol}" eliminado correctamente.`);
                 } catch (e) {
                     console.error(e);
                 }
@@ -919,7 +919,7 @@
                 const seriesValidas = new Set();
                 
                 productos.filter(p => p.categoria === formProducto.categoria).forEach(p => {
-                    if (p.serie && p.serie.trim()) seriesValidas.add(p.serie.trim().toUpperCase());
+                    if (p.serie && String(p.serie).trim()) seriesValidas.add(String(p.serie).trim().toUpperCase());
                 });
 
                 return Array.from(seriesValidas).sort();
@@ -929,11 +929,11 @@
                 const mapaPadres = {};
 
                 productosActivos
-                    .filter(p => !p.personal_asignado || p.personal_asignado.trim() === '')
+                    .filter(p => !p.personal_asignado || String(p.personal_asignado).trim() === '')
                     .forEach(curr => {
                         const sku = curr.sku;
                         const cant = Number(curr.cantidad) || 0;
-                        const serieNom = curr.serie ? curr.serie.trim().toUpperCase() : 'SIN_SERIE';
+                        const serieNom = curr.serie ? String(curr.serie).trim().toUpperCase() : 'SIN_SERIE';
 
                         if (!mapaPadres[sku]) {
                             mapaPadres[sku] = {
@@ -964,13 +964,13 @@
                         ...padre,
                         seriesLibres: Object.values(padre.seriesLibresMap)
                     }))
-                    .sort((a, b) => a.sku.localeCompare(b.sku));
+                    .sort((a, b) => (a.sku || '').localeCompare(b.sku || ''));
             }, [productosActivos]);
 
             const productosDeshabilitados = useMemo(() => {
                 const mapDeshab = {};
-                productos.filter(p => p.activo === false).forEach(curr => {
-                    const key = `${curr.sku}___${curr.serie ? curr.serie.trim().toUpperCase() : 'SIN_SERIE'}`;
+                productos.filter(p => p.activo === false || p.activo === 'false').forEach(curr => {
+                    const key = `${curr.sku}___${curr.serie ? String(curr.serie).trim().toUpperCase() : 'SIN_SERIE'}`;
                     if (!mapDeshab[key]) {
                         mapDeshab[key] = {
                             key,
@@ -991,22 +991,22 @@
             const totalProductosSKUs = productosUnicosGlobalList.length;
             const totalUnidades = useMemo(() => productos.reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
 
-            const unidadesSinAsignar = useMemo(() => productosActivos.filter(p => !p.personal_asignado || p.personal_asignado.trim() === '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
-            const unidadesEnUso = useMemo(() => productosActivos.filter(p => p.personal_asignado && p.personal_asignado.trim() !== '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
-            const unidadesDeshabilitadas = useMemo(() => productos.filter(p => p.activo === false).reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
+            const unidadesSinAsignar = useMemo(() => productosActivos.filter(p => !p.personal_asignado || String(p.personal_asignado).trim() === '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
+            const unidadesEnUso = useMemo(() => productosActivos.filter(p => p.personal_asignado && String(p.personal_asignado).trim() !== '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
+            const unidadesDeshabilitadas = useMemo(() => productos.filter(p => p.activo === false || p.activo === 'false').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
 
             const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
             const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
 
             const listaHistorialAsignaciones = useMemo(() => {
                 return productos.filter(p => {
-                    const tienePersonal = p.personal_asignado && p.personal_asignado.trim() !== '';
-                    const esActivo = p.activo !== false;
+                    const tienePersonal = p.personal_asignado && String(p.personal_asignado).trim() !== '';
+                    const esActivo = p.activo !== false && p.activo !== 'false';
                     return tienePersonal && esActivo;
                 }).sort((a, b) => {
                     const fA = new Date(a.fecha_asignacion || a.created_at || 0).getTime();
                     const fB = new Date(b.fecha_asignacion || b.created_at || 0).getTime();
-                    return fB - fA || b.id - a.id;
+                    return fB - fA;
                 });
             }, [productos]);
 
@@ -1129,7 +1129,7 @@
 
             const asignacionesAgrupadasListMap = useMemo(() => {
                 const mapTemp = productosActivos
-                    .filter(p => p.personal_asignado && p.personal_asignado.trim() !== '')
+                    .filter(p => p.personal_asignado && String(p.personal_asignado).trim() !== '')
                     .reduce((acc, curr) => {
                         const pers = curr.personal_asignado;
                         if (!acc[pers]) acc[pers] = {};
@@ -1195,27 +1195,18 @@
                 };
 
                 try {
-                    const { data, error } = await supabase.from('productos').insert([nuevoItem]).select();
-                    if (!error) {
-                        if (serieLimpia) {
-                            const serieExisteBD = seriesList.some(s => s.nombre.toUpperCase() === serieLimpia);
-                            if (!serieExisteBD) {
-                                const { data: dSerie } = await supabase.from('series').insert([{ nombre: serieLimpia }]).select();
-                                if (dSerie && dSerie[0]) setSeriesList(prev => [...prev, dSerie[0]]);
-                            }
+                    await airtableFetch(PRODUCTOS_TABLE, 'POST', { fields: nuevoItem });
+                    if (serieLimpia) {
+                        const serieExisteBD = seriesList.some(s => String(s.nombre).toUpperCase() === serieLimpia);
+                        if (!serieExisteBD) {
+                            await airtableFetch('series', 'POST', { fields: { nombre: serieLimpia } });
                         }
-
-                        setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '', serie: '' });
-                        setProductoExistenteSKU('');
-                        if (data && data[0]) {
-                            setProductos(prev => [data[0], ...prev]);
-                        } else {
-                            fetchData();
-                        }
-                        mostrarToast(`Nueva serie agregada al producto. SKU: ${skuAsignado}`);
-                    } else {
-                        mostrarToast(`Error BD: ${error.message}`, 'error');
                     }
+
+                    setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '', serie: '' });
+                    setProductoExistenteSKU('');
+                    fetchData();
+                    mostrarToast(`Nueva serie agregada al producto. SKU: ${skuAsignado}`);
                 } catch (err) {
                     mostrarToast('Error al registrar el producto.', 'error');
                 }
@@ -1231,44 +1222,42 @@
                 const cantidadSumar = Number(formRestock.cantidadExtra);
                 const serieElegida = formRestock.serie ? formRestock.serie.trim().toUpperCase() : null;
 
-                const filasExistentes = productos.filter(p => p.sku === formRestock.sku && (p.serie || '').trim().toUpperCase() === (serieElegida || '') && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+                const filasExistentes = productos.filter(p => p.sku === formRestock.sku && (p.serie || '').trim().toUpperCase() === (serieElegida || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === ''));
 
                 if (filasExistentes.length > 0) {
                     const filaPrincipal = filasExistentes[0];
                     const nuevaCant = Number(filaPrincipal.cantidad) + cantidadSumar;
 
-                    setProductos(prev => prev.map(p => p.id === filaPrincipal.id ? { ...p, cantidad: nuevaCant } : p));
-
                     try {
-                        await supabase.from('productos').update({ cantidad: nuevaCant }).eq('id', filaPrincipal.id);
+                        await airtableUpdate(PRODUCTOS_TABLE, filaPrincipal.id, { cantidad: nuevaCant });
                         setFormRestock({ sku: '', serie: '', cantidadExtra: '' });
                         mostrarToast('¡Stock reabastecido correctamente!');
-                    } catch (err) {
                         fetchData();
+                    } catch (err) {
                         mostrarToast('Error al reabastecer stock', 'error');
                     }
                 } else {
                     const prodPadre = productos.find(p => p.sku === formRestock.sku);
                     try {
-                        const { data } = await supabase.from('productos').insert([{
-                            sku: formRestock.sku,
-                            categoria: prodPadre ? prodPadre.categoria : 'General',
-                            producto: prodPadre ? prodPadre.producto : formRestock.sku,
-                            serie: serieElegida,
-                            cantidad: cantidadSumar,
-                            observaciones: 'Reabastecido',
-                            personal_asignado: '',
-                            activo: true,
-                            fecha_asignacion: new Date().toISOString()
-                        }]).select();
-
-                        if (data && data[0]) setProductos(prev => [data[0], ...prev]);
-                        else fetchData();
+                        await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                            fields: {
+                                sku: formRestock.sku,
+                                categoria: prodPadre ? prodPadre.categoria : 'General',
+                                producto: prodPadre ? prodPadre.producto : formRestock.sku,
+                                serie: serieElegida,
+                                cantidad: cantidadSumar,
+                                observaciones: 'Reabastecido',
+                                personal_asignado: '',
+                                activo: true,
+                                fecha_asignacion: new Date().toISOString()
+                            }
+                        });
 
                         setFormRestock({ sku: '', serie: '', cantidadExtra: '' });
                         mostrarToast('¡Stock reabastecido correctamente!');
-                    } catch (err) {
                         fetchData();
+                    } catch (err) {
+                        mostrarToast('Error al reabastecer stock', 'error');
                     }
                 }
             };
@@ -1286,65 +1275,39 @@
 
                 if (!window.confirm(`¿Deshabilitar ${textoSerie} "${nombreProd}" (${skuADeshabilitar})?`)) return;
 
-                setProductos(prev => prev.map(p => {
-                    if (p.sku === skuADeshabilitar) {
-                        if (serieADeshabilitar === 'TODAS' || (p.serie || 'Sin Serie').trim().toUpperCase() === serieADeshabilitar.toUpperCase()) {
-                            return { ...p, activo: false };
-                        }
-                    }
-                    return p;
-                }));
-
                 try {
-                    let query = supabase.from('productos').update({ activo: false }).eq('sku', skuADeshabilitar);
-                    if (serieADeshabilitar !== 'TODAS') {
-                        if (serieADeshabilitar === 'SIN SERIE') {
-                            query = query.is('serie', null);
-                        } else {
-                            query = query.eq('serie', serieADeshabilitar);
+                    const aDeshabilitar = productos.filter(p => {
+                        if (p.sku === skuADeshabilitar) {
+                            if (serieADeshabilitar === 'TODAS') return true;
+                            const pSerie = (p.serie || 'Sin Serie').trim().toUpperCase();
+                            return pSerie === serieADeshabilitar.toUpperCase();
                         }
+                        return false;
+                    });
+
+                    for (const item of aDeshabilitar) {
+                        await airtableUpdate(PRODUCTOS_TABLE, item.id, { activo: false });
                     }
 
-                    const { error } = await query;
-                    if (!error) {
-                        setSkuADeshabilitar('');
-                        setSerieADeshabilitar('TODAS');
-                        mostrarToast('Producto / Serie deshabilitado correctamente.');
-                    } else {
-                        fetchData();
-                    }
+                    setSkuADeshabilitar('');
+                    setSerieADeshabilitar('TODAS');
+                    mostrarToast('Producto / Serie deshabilitado correctamente.');
+                    fetchData();
                 } catch (err) {
                     console.error(err);
-                    fetchData();
                     mostrarToast('Error al deshabilitar.', 'error');
                 }
             };
 
             const handleReactivarProducto = useCallback(async (itemDeshab) => {
-                setProductos(prev => prev.map(p => {
-                    if (p.sku === itemDeshab.sku && (p.serie || '') === (itemDeshab.serie || '')) {
-                        return { ...p, activo: true };
-                    }
-                    return p;
-                }));
-
                 try {
-                    let query = supabase.from('productos').update({ activo: true }).eq('sku', itemDeshab.sku);
-                    if (itemDeshab.serie) {
-                        query = query.eq('serie', itemDeshab.serie);
-                    } else {
-                        query = query.is('serie', null);
+                    for (const idReg of itemDeshab.ids) {
+                        await airtableUpdate(PRODUCTOS_TABLE, idReg, { activo: true });
                     }
-
-                    const { error } = await query;
-                    if (!error) {
-                        mostrarToast(`Serie [${itemDeshab.serie || 'Sin Serie'}] de (${itemDeshab.sku}) reactivada.`);
-                    } else {
-                        fetchData();
-                    }
+                    mostrarToast(`Serie [${itemDeshab.serie || 'Sin Serie'}] de (${itemDeshab.sku}) reactivada.`);
+                    fetchData();
                 } catch (err) {
                     console.error(err);
-                    fetchData();
                 }
             }, [fetchData, mostrarToast]);
 
@@ -1352,25 +1315,14 @@
                 const textoSerie = itemDeshab.serie ? `Serie [${itemDeshab.serie}]` : 'Sin Serie';
                 if (!window.confirm(`¿Estás seguro de ELIMINAR DEFINITIVAMENTE la ${textoSerie} del producto "${itemDeshab.producto}" (${itemDeshab.sku})?`)) return;
 
-                setProductos(prev => prev.filter(p => !(p.sku === itemDeshab.sku && (p.serie || '') === (itemDeshab.serie || ''))));
-
                 try {
-                    let query = supabase.from('productos').delete().eq('sku', itemDeshab.sku);
-                    if (itemDeshab.serie) {
-                        query = query.eq('serie', itemDeshab.serie);
-                    } else {
-                        query = query.is('serie', null);
+                    for (const idReg of itemDeshab.ids) {
+                        await airtableDelete(PRODUCTOS_TABLE, idReg);
                     }
-
-                    const { error } = await query;
-                    if (!error) {
-                        mostrarToast(`${textoSerie} de (${itemDeshab.sku}) eliminada definitivamente.`, 'error');
-                    } else {
-                        fetchData();
-                    }
+                    mostrarToast(`${textoSerie} de (${itemDeshab.sku}) eliminada definitivamente.`, 'error');
+                    fetchData();
                 } catch (err) {
                     console.error(err);
-                    fetchData();
                 }
             }, [fetchData, mostrarToast]);
 
@@ -1419,7 +1371,6 @@
 
             const handleConfirmarAsignacionMultiple = async (e) => {
                 e.preventDefault();
-                if (!supabase) return;
 
                 const skusSeleccionados = Object.keys(prodSeleccionadosAsigMap);
                 if (skusSeleccionados.length === 0 || personalSeleccionados.length === 0) {
@@ -1449,8 +1400,6 @@
                     const tagLote = `LOTE-${Date.now()}`;
                     const obsConLote = obsAsignacion ? `${obsAsignacion} (${tagLote})` : `Asignación (${tagLote})`;
 
-                    const promesasDB = [];
-
                     for (const skuPadre of skusSeleccionados) {
                         const configAsig = prodSeleccionadosAsigMap[skuPadre];
                         const prodPadre = productosPadresLibresAsignacion.find(p => p.sku === skuPadre);
@@ -1466,16 +1415,14 @@
 
                             if (asignacionExistente) {
                                 const nuevaCant = Number(asignacionExistente.cantidad) + cantPorPersona;
-                                promesasDB.push(
-                                    supabase.from('productos').update({
-                                        cantidad: nuevaCant,
-                                        observaciones: obsConLote,
-                                        fecha_asignacion: timestampActualISO
-                                    }).eq('id', asignacionExistente.id)
-                                );
+                                await airtableUpdate(PRODUCTOS_TABLE, asignacionExistente.id, {
+                                    cantidad: nuevaCant,
+                                    observaciones: obsConLote,
+                                    fecha_asignacion: timestampActualISO
+                                });
                             } else {
-                                promesasDB.push(
-                                    supabase.from('productos').insert([{
+                                await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                                    fields: {
                                         sku: skuPadre,
                                         categoria: prodPadre.categoria,
                                         producto: prodPadre.producto,
@@ -1485,30 +1432,28 @@
                                         personal_asignado: persNombre,
                                         activo: true,
                                         fecha_asignacion: timestampActualISO
-                                    }])
-                                );
+                                    }
+                                });
                             }
                         }
 
                         let pendienteDescontar = cantPorPersona * personalSeleccionados.length;
                         const filasStockLibre = productosActivos.filter(
-                            p => p.sku === skuPadre && (p.serie || '') === (serieNombreReal || '') && (!p.personal_asignado || p.personal_asignado.trim() === '')
+                            p => p.sku === skuPadre && (p.serie || '') === (serieNombreReal || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === '')
                         );
 
                         for (const filaLibre of filasStockLibre) {
                             if (pendienteDescontar <= 0) break;
                             const cantFila = Number(filaLibre.cantidad);
                             if (cantFila <= pendienteDescontar) {
-                                promesasDB.push(supabase.from('productos').delete().eq('id', filaLibre.id));
+                                await airtableDelete(PRODUCTOS_TABLE, filaLibre.id);
                                 pendienteDescontar -= cantFila;
                             } else {
-                                promesasDB.push(supabase.from('productos').update({ cantidad: cantFila - pendienteDescontar }).eq('id', filaLibre.id));
+                                await airtableUpdate(PRODUCTOS_TABLE, filaLibre.id, { cantidad: cantFila - pendienteDescontar });
                                 pendienteDescontar = 0;
                             }
                         }
                     }
-
-                    await Promise.all(promesasDB);
 
                     setProdSeleccionadosAsigMap({});
                     setPersonalSeleccionados([]);
@@ -1524,17 +1469,16 @@
             const handleSavePersonal = async (e) => {
                 e.preventDefault();
                 try {
-                    const { data, error } = await supabase.from('personal').insert([{
-                        nombre: formPersonal.nombre,
-                        cargo: formPersonal.cargo
-                    }]).select();
+                    await airtableFetch('personal', 'POST', {
+                        fields: {
+                            nombre: formPersonal.nombre,
+                            cargo: formPersonal.cargo
+                        }
+                    });
 
-                    if (!error) {
-                        setFormPersonal({ nombre: '', cargo: '' });
-                        if (data && data[0]) setPersonalList(prev => [...prev, data[0]]);
-                        else fetchData();
-                        mostrarToast('Personal registrado con éxito.');
-                    }
+                    setFormPersonal({ nombre: '', cargo: '' });
+                    fetchData();
+                    mostrarToast('Personal registrado con éxito.');
                 } catch (err) {
                     mostrarToast('Error al crear personal.', 'error');
                 }
@@ -1546,25 +1490,25 @@
                 try {
                     const asignacionesDelPersonal = productosActivos.filter(p => p.personal_asignado === nombreColaborador);
                     let totalUnidadesDevueltas = 0;
-                    const promesasDB = [];
 
                     for (const item of asignacionesDelPersonal) {
                         const cantItem = Number(item.cantidad) || 1;
                         totalUnidadesDevueltas += cantItem;
 
-                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (p.serie || '') === (item.serie || '') && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (p.serie || '') === (item.serie || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === ''));
 
                         if (stockLibreExistente) {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + cantItem }).eq('id', stockLibreExistente.id));
+                            await airtableUpdate(PRODUCTOS_TABLE, stockLibreExistente.id, { cantidad: Number(stockLibreExistente.cantidad) + cantItem });
                         } else {
-                            promesasDB.push(supabase.from('productos').insert([{
-                                sku: item.sku, categoria: item.categoria, producto: item.producto, serie: item.serie || null, cantidad: cantItem, observaciones: 'Devuelto masivo', personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
-                            }]));
+                            await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                                fields: {
+                                    sku: item.sku, categoria: item.categoria, producto: item.producto, serie: item.serie || null, cantidad: cantItem, observaciones: 'Devuelto masivo', personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
+                                }
+                            });
                         }
-                        promesasDB.push(supabase.from('productos').delete().eq('id', item.id));
+                        await airtableDelete(PRODUCTOS_TABLE, item.id);
                     }
 
-                    await Promise.all(promesasDB);
                     await fetchData();
                     mostrarToast(`Se devolvieron ${totalUnidadesDevueltas} unidades de "${nombreColaborador}" al stock libre.`);
                 } catch (err) {
@@ -1581,24 +1525,25 @@
                 }
 
                 try {
-                    const promesasDB = [];
-                    const stockLibreExistente = productosActivos.find(p => p.sku === asigItem.sku && (p.serie || '') === (asigItem.serie || '') && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+                    const stockLibreExistente = productosActivos.find(p => p.sku === asigItem.sku && (p.serie || '') === (asigItem.serie || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === ''));
 
                     if (stockLibreExistente) {
                         const nuevaCantLibre = Number(stockLibreExistente.cantidad) + cantADevolver;
-                        promesasDB.push(supabase.from('productos').update({ cantidad: nuevaCantLibre }).eq('id', stockLibreExistente.id));
+                        await airtableUpdate(PRODUCTOS_TABLE, stockLibreExistente.id, { cantidad: nuevaCantLibre });
                     } else {
-                        promesasDB.push(supabase.from('productos').insert([{
-                            sku: asigItem.sku,
-                            categoria: asigItem.categoria,
-                            producto: asigItem.producto,
-                            serie: asigItem.serie || null,
-                            cantidad: cantADevolver,
-                            observaciones: 'Devuelto',
-                            personal_asignado: '',
-                            activo: true,
-                            fecha_asignacion: new Date().toISOString()
-                        }]));
+                        await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                            fields: {
+                                sku: asigItem.sku,
+                                categoria: asigItem.categoria,
+                                producto: asigItem.producto,
+                                serie: asigItem.serie || null,
+                                cantidad: cantADevolver,
+                                observaciones: 'Devuelto',
+                                personal_asignado: '',
+                                activo: true,
+                                fecha_asignacion: new Date().toISOString()
+                            }
+                        });
                     }
 
                     let pendiente = cantADevolver;
@@ -1610,15 +1555,13 @@
                         const cantFila = Number(fila.cantidad);
 
                         if (cantFila <= pendiente) {
-                            promesasDB.push(supabase.from('productos').delete().eq('id', fila.id));
+                            await airtableDelete(PRODUCTOS_TABLE, fila.id);
                             pendiente -= cantFila;
                         } else {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: cantFila - pendiente }).eq('id', fila.id));
+                            await airtableUpdate(PRODUCTOS_TABLE, fila.id, { cantidad: cantFila - pendiente });
                             pendiente = 0;
                         }
                     }
-
-                    await Promise.all(promesasDB);
 
                     setDevolviendoKey(null);
                     setCantDevolver(1);
@@ -1633,21 +1576,17 @@
             const handleGuardarObservacionEditada = async (asigItem) => {
                 try {
                     const idsAActualizar = asigItem.ids && asigItem.ids.length > 0 ? asigItem.ids : [asigItem.id];
-                    
-                    setProductos(prev => prev.map(p => idsAActualizar.includes(p.id) ? { ...p, observaciones: nuevaObsTexto.trim() } : p));
 
-                    const promesasDB = idsAActualizar.map(idReg => 
-                        supabase.from('productos').update({ observaciones: nuevaObsTexto.trim() }).eq('id', idReg)
-                    );
-
-                    await Promise.all(promesasDB);
+                    for (const idReg of idsAActualizar) {
+                        await airtableUpdate(PRODUCTOS_TABLE, idReg, { observaciones: nuevaObsTexto.trim() });
+                    }
 
                     setEditandoObsKey(null);
                     setNuevaObsTexto('');
                     mostrarToast('Observación actualizada correctamente.');
+                    fetchData();
                 } catch (err) {
                     console.error(err);
-                    fetchData();
                     mostrarToast('Error al actualizar observación.', 'error');
                 }
             };
@@ -1657,22 +1596,22 @@
                 
                 try {
                     const asignacionesDelPersonal = productosActivos.filter(p => p.personal_asignado === persNombre);
-                    const promesasDB = [];
 
                     for (const item of asignacionesDelPersonal) {
-                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (p.serie || '') === (item.serie || '') && (!p.personal_asignado || p.personal_asignado.trim() === ''));
+                        const stockLibreExistente = productosActivos.find(p => p.sku === item.sku && (p.serie || '') === (item.serie || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === ''));
                         if (stockLibreExistente) {
-                            promesasDB.push(supabase.from('productos').update({ cantidad: Number(stockLibreExistente.cantidad) + Number(item.cantidad) }).eq('id', stockLibreExistente.id));
+                            await airtableUpdate(PRODUCTOS_TABLE, stockLibreExistente.id, { cantidad: Number(stockLibreExistente.cantidad) + Number(item.cantidad) });
                         } else {
-                            promesasDB.push(supabase.from('productos').insert([{
-                                sku: item.sku, categoria: item.categoria, producto: item.producto, serie: item.serie || null, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
-                            }]));
+                            await airtableFetch(PRODUCTOS_TABLE, 'POST', {
+                                fields: {
+                                    sku: item.sku, categoria: item.categoria, producto: item.producto, serie: item.serie || null, cantidad: item.cantidad, observaciones: item.observaciones, personal_asignado: '', activo: true, fecha_asignacion: new Date().toISOString()
+                                }
+                            });
                         }
-                        promesasDB.push(supabase.from('productos').delete().eq('id', item.id));
+                        await airtableDelete(PRODUCTOS_TABLE, item.id);
                     }
-                    promesasDB.push(supabase.from('personal').delete().eq('id', persId));
+                    await airtableDelete('personal', persId);
 
-                    await Promise.all(promesasDB);
                     await fetchData();
                     mostrarToast('Personal eliminado.');
                 } catch (err) {
@@ -1690,7 +1629,7 @@
                             <div className="text-center space-y-2">
                                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-2xl mx-auto shadow-xl shadow-indigo-500/30 border border-white/20">🏢</div>
                                 <h1 className={`text-3xl font-black tracking-widest ${modoClaro ? 'text-slate-800' : 'bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent'}`}>SICI</h1>
-                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO</p>
+                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO (AIRTABLE)</p>
                             </div>
 
                             <form onSubmit={handleLogin} className="space-y-4">
@@ -1746,7 +1685,7 @@
                         {/* Cabecera Principal */}
                         <header className={`${modoClaro ? 'bg-white/90 border-slate-200 shadow-xl' : 'glass-panel border-indigo-500/20 shadow-2xl shadow-indigo-950/30'} p-5 md:p-6 rounded-3xl border backdrop-blur-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all relative overflow-hidden`}>
                             <div className="flex items-center gap-4 relative z-10">
-                                <Tooltip text="SICI - Sistema de Inventario" position="right">
+                                <Tooltip text="SICI - Sistema de Inventario Airtable" position="right">
                                     <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 flex items-center justify-center text-xl text-white shadow-lg shadow-indigo-500/30 border border-white/20">🏢</div>
                                 </Tooltip>
                                 <div>
@@ -1756,7 +1695,7 @@
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                                         </span>
-                                        SISTEMA DE INVENTARIO EN LÍNEA
+                                        SISTEMA DE INVENTARIO AIRTABLE
                                     </p>
                                 </div>
                             </div>
@@ -2398,7 +2337,7 @@
                             </section>
                         )}
 
-                        {/* PESTAÑA: PERSONAL (GRID INVERTIDO: FORMULARIO A LA IZQUIERDA / LISTA A LA DERECHA) */}
+                        {/* PESTAÑA: PERSONAL */}
                         {tabActiva === 'personal' && tienePermiso('personal') && (
                             <section className={`animate-tab ${modoClaro ? 'bg-white border-slate-200' : 'bg-slate-900/60 border-slate-800/80'} p-6 md:p-8 rounded-3xl border backdrop-blur-xl space-y-6 shadow-xl`}>
                                 <div>
@@ -2409,7 +2348,7 @@
                                 </div>
 
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                                    {/* FORMULARIO AGREGAR COLABORADOR (IZQUIERDA) */}
+                                    {/* FORMULARIO AGREGAR COLABORADOR */}
                                     <div className={`${modoClaro ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800/80'} p-6 rounded-2xl border space-y-4 shadow-inner`}>
                                         <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider">➕ Agregar Colaborador</h3>
                                         <form onSubmit={handleSavePersonal} className="space-y-4">
@@ -2452,7 +2391,7 @@
                                         </form>
                                     </div>
 
-                                    {/* LISTA DE PERSONAL DETALLADA (DERECHA) */}
+                                    {/* LISTA DE PERSONAL DETALLADA */}
                                     <div className={`${modoClaro ? 'bg-slate-50 border-slate-200' : 'bg-slate-950/80 border-slate-800/80'} p-6 rounded-2xl border space-y-4 shadow-inner`}>
                                         <div className="flex justify-between items-center">
                                             <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider">📋 Personal Registrado ({personalList.length})</h3>
