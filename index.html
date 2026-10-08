@@ -1199,13 +1199,20 @@
                     return;
                 }
 
-                if (productoExistenteSKU && !formProducto.serie.trim()) {
-                    mostrarToast('Debes ingresar la nueva serie para este producto.', 'error');
-                    return;
-                }
-
                 const skuAsignado = productoExistenteSKU ? productoExistenteSKU : generarSKU();
                 const serieLimpia = formProducto.serie ? formProducto.serie.trim().toUpperCase() : null;
+
+                if (serieLimpia) {
+                    if (cantNum !== 1) {
+                        mostrarToast('Una serie identifica una sola unidad: la cantidad debe ser 1.', 'error');
+                        return;
+                    }
+                    const serieRepetida = productos.some(p => String(p.serie || '').trim().toUpperCase() === serieLimpia);
+                    if (serieRepetida) {
+                        mostrarToast('La serie ' + serieLimpia + ' ya está registrada.', 'error');
+                        return;
+                    }
+                }
 
                 const nuevoItem = {
                     sku: skuAsignado,
@@ -1221,13 +1228,6 @@
 
                 try {
                     await airtableFetch(PRODUCTOS_TABLE, 'POST', { fields: nuevoItem });
-                    if (serieLimpia) {
-                        const serieExisteBD = seriesList.some(s => String(s.nombre).toUpperCase() === serieLimpia);
-                        if (!serieExisteBD) {
-                            await airtableFetch('series', 'POST', { fields: { nombre: serieLimpia } });
-                        }
-                    }
-
                     setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '', serie: '' });
                     setProductoExistenteSKU('');
                     fetchData();
@@ -1847,7 +1847,7 @@
                                                 </div>
                                                 <div>
                                                     <label className={`block text-[11px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Contraseña</label>
-                                                    <input type="password" placeholder="••••••••" value={formNuevoUsuario.password} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-indigo-500`} required />
+                                                    <input autoComplete="new-password" type="password" placeholder="••••••••" value={formNuevoUsuario.password} onChange={e => setFormNuevoUsuario({...formNuevoUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-indigo-500`} required />
                                                 </div>
                                                 <div>
                                                     <label className={`block text-[11px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Rol de Usuario</label>
@@ -1902,7 +1902,7 @@
                                                 </div>
                                                 <div>
                                                     <label className={`block text-[11px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Nueva Contraseña</label>
-                                                    <input type="text" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
+                                                    <input autoComplete="new-password" type="text" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
                                                 </div>
 
                                                 <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-3 rounded-xl text-xs shadow-md shadow-emerald-600/30 cursor-pointer btn-haptic border border-emerald-400/20">
@@ -2197,14 +2197,13 @@
 
                                                 <div>
                                                     <label className={`block text-[10px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Serie / Clasificación</label>
-                                                    {productoExistenteSKU ? (
+                                                    {true ? (
                                                         <input 
                                                             type="text" 
-                                                            placeholder="Escribe la nueva serie" 
+                                                            placeholder="Serie (opcional). Ej. HP0001" 
                                                             value={formProducto.serie} 
                                                             onChange={e => setFormProducto({ ...formProducto, serie: e.target.value })} 
                                                             className={`w-full border rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold uppercase outline-none ${modoClaro ? 'bg-slate-50 border-slate-300 text-amber-600' : 'bg-slate-800/80 border-slate-700 text-amber-300'}`} 
-                                                            required 
                                                         />
                                                     ) : (
                                                         !creandoSerie ? (
