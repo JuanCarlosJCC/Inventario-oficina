@@ -105,6 +105,10 @@
         const AIRTABLE_BASE_ID = 'appojUCjsYrd0rAUa';
         const PRODUCTOS_TABLE = 'tblVk5mf3H6GSSESU';
 
+        // H7: en Airtable una casilla desmarcada NO llega como false: el campo viene ausente.
+        // Por eso "activo" solo es verdadero si llega true (o 'true'/'t' si algun dia fuera texto).
+        const estaActivo = (p) => p.activo === true || p.activo === 'true' || p.activo === 't';
+
         // Cliente API Helper para Airtable
         const airtableFetch = async (tableNameOrId, method = 'GET', bodyData = null) => {
             const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}`;
@@ -244,6 +248,7 @@
             const [rolesList, setRolesList] = useState([]);
             const [seriesList, setSeriesList] = useState([]);
             const [loading, setLoading] = useState(true);
+            const [errorCarga, setErrorCarga] = useState('');
             
             const [busquedaInput, setBusquedaInput] = useState('');
             const [busqueda, setBusqueda] = useState('');
@@ -336,21 +341,33 @@
             const fetchData = useCallback(async () => {
                 setLoading(true);
                 try {
+                    const erroresCarga = [];
+                    // H9: Airtable entrega maximo 100 filas por llamada y un "offset" para pedir el resto.
                     const fetchAirtableRecords = async (table) => {
                         try {
-                            const res = await airtableFetch(table);
-                            return res.records.map(r => {
+                            let registros = [];
+                            let offset = null;
+                            do {
+                                const res = await airtableFetch(offset ? `${table}?offset=${offset}` : table);
+                                registros = registros.concat(res.records);
+                                offset = res.offset;
+                            } while (offset);
+                            return registros.map(r => {
                                 let permisos = r.fields.permisos;
                                 if (permisos && typeof permisos === 'string') {
                                     try { permisos = JSON.parse(permisos); } catch(e) {}
                                 }
+                                // El id REAL del registro (r.id) va al final para que un campo "id" viejo de Supabase no lo pise.
                                 return {
-                                    id: r.id,
                                     ...r.fields,
+                                    id: r.id,
                                     permisos
                                 };
                             });
                         } catch (e) {
+                            // H8: ya no se esconde el error; se guarda para mostrarlo en pantalla.
+                            console.error(`Error leyendo la tabla "${table}":`, e);
+                            erroresCarga.push(table);
                             return [];
                         }
                     };
@@ -373,6 +390,9 @@
                         fetchAirtableRecords('series')
                     ]);
 
+                    setErrorCarga(erroresCarga.length > 0
+                        ? `No se pudo leer de Airtable: ${erroresCarga.join(', ')}. Revisa que la tabla exista y que sus campos se llamen igual que en el codigo (abre F12 > Consola para ver el detalle).`
+                        : '');
                     setProductos(prodData || []);
                     setPersonalList(persData || []);
                     setUsuariosList(userData || []);
@@ -431,7 +451,7 @@
                 setLoginError('');
                 try {
                     const res = await airtableFetch('usuarios');
-                    const users = res.records.map(r => ({ id: r.id, ...r.fields }));
+                    const users = res.records.map(r => ({ ...r.fields, id: r.id }));
                     const data = users.find(u => u.username === loginUser.trim() && u.password === loginPass.trim());
 
                     if (!data) {
@@ -570,7 +590,7 @@
                 return { fechaStr, horaStr };
             }, []);
 
-            const productosActivos = useMemo(() => productos.filter(p => p.activo !== false && p.activo !== 'false'), [productos]);
+            const productosActivos = useMemo(() => productos.filter(p => estaActivo(p)), [productos]);
 
             const productosUnicosGlobalList = useMemo(() => {
                 const mapPadres = {};
@@ -595,7 +615,7 @@
 
                     mapPadres[sku].cantidadTotal += cant;
 
-                    const esInactivo = curr.activo === false || curr.activo === 'false';
+                    const esInactivo = !estaActivo(curr);
 
                     if (esInactivo) {
                         mapPadres[sku].cantidadDeshabilitada += cant;
@@ -683,8 +703,13 @@
                             return;
                         }
 
-                        const resProd = await airtableFetch(PRODUCTOS_TABLE);
-                        const prodActuales = resProd.records.map(r => ({ id: r.id, ...r.fields }));
+                        let prodActuales = [];
+                        let offsetProd = null;
+                        do {
+                            const resProd = await airtableFetch(offsetProd ? `${PRODUCTOS_TABLE}?offset=${offsetProd}` : PRODUCTOS_TABLE);
+                            prodActuales = prodActuales.concat(resProd.records.map(r => ({ ...r.fields, id: r.id })));
+                            offsetProd = resProd.offset;
+                        } while (offsetProd);
 
                         let maxSKUNum = 0;
                         prodActuales.forEach(p => {
@@ -969,7 +994,7 @@
 
             const productosDeshabilitados = useMemo(() => {
                 const mapDeshab = {};
-                productos.filter(p => p.activo === false || p.activo === 'false').forEach(curr => {
+                productos.filter(p => !estaActivo(p)).forEach(curr => {
                     const key = `${curr.sku}___${curr.serie ? String(curr.serie).trim().toUpperCase() : 'SIN_SERIE'}`;
                     if (!mapDeshab[key]) {
                         mapDeshab[key] = {
@@ -993,7 +1018,7 @@
 
             const unidadesSinAsignar = useMemo(() => productosActivos.filter(p => !p.personal_asignado || String(p.personal_asignado).trim() === '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
             const unidadesEnUso = useMemo(() => productosActivos.filter(p => p.personal_asignado && String(p.personal_asignado).trim() !== '').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productosActivos]);
-            const unidadesDeshabilitadas = useMemo(() => productos.filter(p => p.activo === false || p.activo === 'false').reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
+            const unidadesDeshabilitadas = useMemo(() => productos.filter(p => !estaActivo(p)).reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0), [productos]);
 
             const productoSeleccionadoRestock = productosUnicosGlobalList.find(p => p.sku === formRestock.sku);
             const productoSeleccionadoDeshabilitar = productosUnicosGlobalList.find(p => p.sku === skuADeshabilitar);
@@ -1001,7 +1026,7 @@
             const listaHistorialAsignaciones = useMemo(() => {
                 return productos.filter(p => {
                     const tienePersonal = p.personal_asignado && String(p.personal_asignado).trim() !== '';
-                    const esActivo = p.activo !== false && p.activo !== 'false';
+                    const esActivo = estaActivo(p);
                     return tienePersonal && esActivo;
                 }).sort((a, b) => {
                     const fA = new Date(a.fecha_asignacion || a.created_at || 0).getTime();
@@ -1671,6 +1696,13 @@
 
             return (
                 <div className="p-4 md:p-8 transition-colors duration-500">
+                    {errorCarga && (
+                        <div className="max-w-7xl mx-auto mb-4 p-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs font-bold flex items-start gap-2">
+                            <span>⚠️</span>
+                            <span className="flex-1">{errorCarga}</span>
+                            <button type="button" onClick={fetchData} className="px-3 py-1 rounded-lg bg-rose-600 text-white font-black cursor-pointer">Reintentar</button>
+                        </div>
+                    )}
                     {toast.show && (
                         <div key={toast.key} className={`fixed top-6 right-6 z-50 rounded-2xl text-xs font-black shadow-2xl border backdrop-blur-xl transition-all duration-300 animate-tab overflow-hidden ${toast.type === 'error' ? 'bg-rose-950/90 text-rose-200 border-rose-500/40 shadow-rose-950/50' : 'bg-emerald-950/90 text-emerald-200 border-emerald-500/40 shadow-emerald-950/50'}`}>
                             <div className="px-5 py-3.5 flex items-center gap-2">
