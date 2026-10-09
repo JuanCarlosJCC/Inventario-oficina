@@ -1231,7 +1231,7 @@
                     setFormProducto({ categoria: '', producto: '', cantidad: '', observaciones: '', serie: '' });
                     setProductoExistenteSKU('');
                     fetchData();
-                    mostrarToast(`Nueva serie agregada al producto. SKU: ${skuAsignado}`);
+                    mostrarToast(serieLimpia ? `Serie ${serieLimpia} registrada. SKU: ${skuAsignado}` : `Stock agregado. SKU: ${skuAsignado}`);
                 } catch (err) {
                     mostrarToast('Error al registrar el producto.', 'error');
                 }
@@ -1245,7 +1245,14 @@
                 }
 
                 const cantidadSumar = Number(formRestock.cantidadExtra);
-                const serieElegida = formRestock.serie ? formRestock.serie.trim().toUpperCase() : null;
+                const serieElegida = (formRestock.serie && formRestock.serie.trim().toUpperCase() !== 'SIN SERIE')
+                    ? formRestock.serie.trim().toUpperCase()
+                    : null;
+
+                if (serieElegida) {
+                    mostrarToast('Una serie identifica una sola unidad: no se le puede sumar stock. Registra una serie nueva.', 'error');
+                    return;
+                }
 
                 const filasExistentes = productos.filter(p => p.sku === formRestock.sku && (p.serie || '').trim().toUpperCase() === (serieElegida || '') && (!p.personal_asignado || String(p.personal_asignado).trim() === ''));
 
@@ -1697,7 +1704,7 @@
             return (
                 <div className="p-4 md:p-8 transition-colors duration-500">
                     {errorCarga && (
-                        <div className="max-w-7xl mx-auto mb-4 p-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs font-bold flex items-start gap-2">
+                        <div className="w-full mb-4 p-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs font-bold flex items-start gap-2">
                             <span>⚠️</span>
                             <span className="flex-1">{errorCarga}</span>
                             <button type="button" onClick={fetchData} className="px-3 py-1 rounded-lg bg-rose-600 text-white font-black cursor-pointer">Reintentar</button>
@@ -1713,7 +1720,7 @@
                         </div>
                     )}
 
-                    <div className="max-w-7xl mx-auto space-y-6">
+                    <div className="w-full space-y-6">
                         {/* Cabecera Principal */}
                         <header className={`${modoClaro ? 'bg-white/90 border-slate-200 shadow-xl' : 'glass-panel border-indigo-500/20 shadow-2xl shadow-indigo-950/30'} p-5 md:p-6 rounded-3xl border backdrop-blur-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 transition-all relative overflow-hidden`}>
                             <div className="flex items-center gap-4 relative z-10">
@@ -2636,7 +2643,10 @@
                                                                             📦 {padre.producto} (<strong className="font-mono text-indigo-400">{padre.sku}</strong>)
                                                                         </span>
                                                                         <div className="text-[10px] text-slate-400 font-semibold mt-0.5">
-                                                                            Categoría: {padre.categoria} • {padre.seriesHijos.length} Serie(s)
+                                                                            Categoría: {padre.categoria} • {(() => {
+                                                                                const n = padre.seriesHijos.filter(s => String(s.serie).toUpperCase() !== 'SIN SERIE').length;
+                                                                                return n === 0 ? 'Sin series' : n + ' serie(s)';
+                                                                            })()}
                                                                         </div>
                                                                     </div>
 
