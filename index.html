@@ -286,7 +286,7 @@
             const [formRestock, setFormRestock] = useState({ sku: '', serie: '', cantidadExtra: '' });
             const [skuADeshabilitar, setSkuADeshabilitar] = useState('');
             const [serieADeshabilitar, setSerieADeshabilitar] = useState('TODAS');
-            const [formPersonal, setFormPersonal] = useState({ nombre: '', cargo: '' });
+            const [formPersonal, setFormPersonal] = useState({ nombre: '', cargo: '', area: '' });
             
             const [formNuevoUsuario, setFormNuevoUsuario] = useState({
                 username: '',
@@ -1504,11 +1504,12 @@
                     await airtableFetch('personal', 'POST', {
                         fields: {
                             nombre: formPersonal.nombre,
-                            cargo: formPersonal.cargo
+                            cargo: formPersonal.cargo,
+                            ...(formPersonal.area.trim() ? { area: formPersonal.area.trim() } : {})
                         }
                     });
 
-                    setFormPersonal({ nombre: '', cargo: '' });
+                    setFormPersonal({ nombre: '', cargo: '', area: '' });
                     fetchData();
                     mostrarToast('Personal registrado con éxito.');
                 } catch (err) {
@@ -2425,6 +2426,10 @@
                                                     </div>
                                                 )}
                                             </div>
+                                            <div>
+                                                <label className={`block text-[11px] font-black uppercase mb-1.5 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Área <span className="normal-case font-bold opacity-60">(opcional)</span></label>
+                                                <input type="text" placeholder="Ej. Fullstack, Peritaje, RRHH" value={formPersonal.area} onChange={e => setFormPersonal({...formPersonal, area: e.target.value})} className={`w-full border rounded-xl px-4 py-3 text-xs font-semibold outline-none focus:border-indigo-500 ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'}`} />
+                                            </div>
                                             <button type="submit" className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-black py-3.5 rounded-xl shadow-md shadow-indigo-600/30 cursor-pointer btn-haptic border border-indigo-400/20 text-xs">Guardar Colaborador</button>
                                         </form>
                                     </div>
@@ -2445,7 +2450,7 @@
                                                             <Avatar nombre={pers.nombre} />
                                                             <div>
                                                                 <span className={`block text-xs font-black ${modoClaro ? 'text-slate-800' : 'text-white'}`}>{pers.nombre}</span>
-                                                                <span className="text-[10px] font-bold text-indigo-400">{pers.cargo || 'Sin cargo'}</span>
+                                                                <span className="text-[10px] font-bold text-indigo-400">{pers.cargo || 'Sin cargo'}{pers.area ? ` · ${pers.area}` : ''}</span>
                                                             </div>
                                                         </div>
 
