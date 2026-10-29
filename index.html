@@ -100,64 +100,58 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef, useCallback, memo } = React;
 
-        // Configuración Airtable
-        const AIRTABLE_PAT = 'patFzdFijZKz9jsyA.d8ef7896b6689d04520e39d3fbd4f0015765673717bd0c140ce3fb31425e61e1';
-        const AIRTABLE_BASE_ID = 'appojUCjsYrd0rAUa';
+        // Los datos viven en Airtable, pero el navegador ya NO habla con Airtable: todo pasa por /api
+        // (el servidor guarda la clave, valida la sesión y los permisos).
         const PRODUCTOS_TABLE = 'tblVk5mf3H6GSSESU';
 
         // H7: en Airtable una casilla desmarcada NO llega como false: el campo viene ausente.
         // Por eso "activo" solo es verdadero si llega true (o 'true'/'t' si algun dia fuera texto).
         const estaActivo = (p) => p.activo === true || p.activo === 'true' || p.activo === 't';
 
-        // Cliente API Helper para Airtable
-        const airtableFetch = async (tableNameOrId, method = 'GET', bodyData = null) => {
-            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}`;
-            const options = {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${AIRTABLE_PAT}`,
-                    'Content-Type': 'application/json'
-                }
-            };
-            if (bodyData) {
-                options.body = JSON.stringify(bodyData);
-            }
-            const res = await fetch(url, options);
+        // Cliente de la API del servidor (misma firma que antes: el resto del código no cambia)
+        const apiCall = async (url, options = {}) => {
+            const res = await fetch(url, {
+                credentials: 'same-origin',
+                ...options,
+                headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+            });
+            let data = null;
+            try { data = await res.json(); } catch (e) { /* respuesta vacía */ }
+            if (res.status === 401) window.dispatchEvent(new Event('sici:sesion-expirada'));
             if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`Airtable Error [${res.status}]: ${errorText}`);
+                const err = new Error(`Error [${res.status}]`);
+                err.status = res.status;
+                err.mensaje = data && data.error;
+                throw err;
             }
-            return await res.json();
+            return data;
+        };
+
+        const airtableFetch = async (tableNameOrId, method = 'GET', bodyData = null) => {
+            const [tabla, query] = String(tableNameOrId).split('?');
+            const offset = query ? new URLSearchParams(query).get('offset') : null;
+            if (tabla === 'usuarios') {
+                if (method === 'POST') return apiCall('/api/usuarios', { method: 'POST', body: JSON.stringify(bodyData) });
+                return apiCall('/api/usuarios');
+            }
+            if (method === 'GET') {
+                return apiCall(`/api/records?table=${encodeURIComponent(tabla)}${offset ? `&offset=${encodeURIComponent(offset)}` : ''}`);
+            }
+            return apiCall('/api/records', { method, body: JSON.stringify({ table: tabla, ...bodyData }) });
         };
 
         const airtableDelete = async (tableNameOrId, recordId) => {
-            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}/${recordId}`;
-            const res = await fetch(url, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${AIRTABLE_PAT}` }
-            });
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`Airtable Delete Error: ${errorText}`);
+            if (tableNameOrId === 'usuarios') {
+                return apiCall(`/api/usuarios?id=${encodeURIComponent(recordId)}`, { method: 'DELETE' });
             }
-            return await res.json();
+            return apiCall(`/api/records?table=${encodeURIComponent(tableNameOrId)}&id=${encodeURIComponent(recordId)}`, { method: 'DELETE' });
         };
 
         const airtableUpdate = async (tableNameOrId, recordId, fields) => {
-            const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${tableNameOrId}/${recordId}`;
-            const res = await fetch(url, {
-                method: 'PATCH',
-                headers: {
-                    'Authorization': `Bearer ${AIRTABLE_PAT}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ fields })
-            });
-            if (!res.ok) {
-                const errorText = await res.text();
-                throw new Error(`Airtable Update Error: ${errorText}`);
+            if (tableNameOrId === 'usuarios') {
+                return apiCall('/api/usuarios', { method: 'PATCH', body: JSON.stringify({ id: recordId, fields }) });
             }
-            return await res.json();
+            return apiCall('/api/records', { method: 'PATCH', body: JSON.stringify({ table: tableNameOrId, id: recordId, fields }) });
         };
 
         const Tooltip = memo(({ text, position = 'top', children }) => {
@@ -232,6 +226,7 @@
 
         function InventoryApp() {
             const [usuarioSesion, setUsuarioSesion] = useState(null);
+            const [sesionVerificada, setSesionVerificada] = useState(false);
             const [loginUser, setLoginUser] = useState('');
             const [loginPass, setLoginPass] = useState('');
             const [loginError, setLoginError] = useState('');
@@ -423,15 +418,27 @@
                 setLoading(false);
             }, []);
 
+            // La sesión vive en una cookie del servidor (HttpOnly): aquí solo se pregunta si sigue vigente.
             useEffect(() => {
-                const sesionGuardada = localStorage.getItem('sesion_inventario');
-                if (sesionGuardada) {
-                    const userObj = JSON.parse(sesionGuardada);
-                    setUsuarioSesion(userObj);
-                    ajustarTabInicial(userObj);
-                }
-                fetchData();
-            }, [fetchData]);
+                let vivo = true;
+                (async () => {
+                    try {
+                        const res = await fetch('/api/session', { credentials: 'same-origin' });
+                        if (res.ok) {
+                            const { user } = await res.json();
+                            if (vivo && user) { setUsuarioSesion(user); ajustarTabInicial(user); }
+                        }
+                    } catch (e) { /* sin conexión: se muestra el inicio de sesión */ }
+                    if (vivo) setSesionVerificada(true);
+                })();
+                const alExpirar = () => setUsuarioSesion(null);
+                window.addEventListener('sici:sesion-expirada', alExpirar);
+                return () => { vivo = false; window.removeEventListener('sici:sesion-expirada', alExpirar); };
+            }, []);
+
+            useEffect(() => {
+                if (usuarioSesion) fetchData();
+            }, [usuarioSesion && usuarioSesion.id, fetchData]);
 
             const ajustarTabInicial = (user) => {
                 if (!user) return;
@@ -450,31 +457,28 @@
                 e.preventDefault();
                 setLoginError('');
                 try {
-                    const res = await airtableFetch('usuarios');
-                    const users = res.records.map(r => ({ ...r.fields, id: r.id }));
-                    const data = users.find(u => u.username === loginUser.trim() && u.password === loginPass.trim());
-
-                    if (!data) {
-                        setLoginError('Usuario o contraseña incorrectos.');
-                        return;
-                    }
-
-                    if (data.permisos && typeof data.permisos === 'string') {
-                        try { data.permisos = JSON.parse(data.permisos); } catch(e) {}
-                    }
-
-                    setUsuarioSesion(data);
-                    localStorage.setItem('sesion_inventario', JSON.stringify(data));
-                    ajustarTabInicial(data);
-                    mostrarToast(`Bienvenido/a, ${data.nombre}`);
+                    const { user } = await apiCall('/api/login', {
+                        method: 'POST',
+                        body: JSON.stringify({ username: loginUser.trim(), password: loginPass.trim() })
+                    });
+                    setLoginPass('');
+                    setUsuarioSesion(user);
+                    ajustarTabInicial(user);
+                    mostrarToast(`Bienvenido/a, ${user.nombre}`);
                 } catch (err) {
-                    setLoginError('Error de conexión con el servidor de Airtable.');
+                    setLoginPass('');
+                    if (err.status === 401 || err.status === 429 || err.status === 400) {
+                        setLoginError(err.mensaje || 'Usuario o contraseña incorrectos.');
+                    } else {
+                        setLoginError('Error de conexión con el servidor.');
+                    }
                 }
             };
 
-            const handleLogout = () => {
+            const handleLogout = async () => {
+                try { await apiCall('/api/logout', { method: 'POST', body: '{}' }); } catch (e) { /* igual se cierra aquí */ }
                 setUsuarioSesion(null);
-                localStorage.removeItem('sesion_inventario');
+                setProductos([]); setPersonalList([]); setUsuariosList([]);
             };
 
             const handleCrearUsuario = async (e) => {
@@ -498,7 +502,7 @@
                         permisos: { asignar: true, productos: true, deshabilitados: true, personal: true }
                     });
                 } catch (err) {
-                    mostrarToast('Error al crear usuario.', 'error');
+                    mostrarToast(err.mensaje || 'Error al crear usuario.', 'error');
                 }
             };
 
@@ -507,7 +511,7 @@
                 setFormEditarUsuario({
                     nombre: user.nombre,
                     username: user.username,
-                    password: user.password,
+                    password: '',
                     rol: user.rol,
                     permisos: user.permisos || { asignar: true, productos: true, deshabilitados: true, personal: true }
                 });
@@ -529,14 +533,13 @@
                     await airtableUpdate('usuarios', usuarioEditando.id, datosActualizar);
                     mostrarToast('Usuario y permisos actualizados correctamente.');
                     if (usuarioEditando.id === usuarioSesion.id) {
-                        const sesionActualizada = { ...usuarioSesion, ...datosActualizar, permisos: formEditarUsuario.permisos };
-                        setUsuarioSesion(sesionActualizada);
-                        localStorage.setItem('sesion_inventario', JSON.stringify(sesionActualizada));
+                        const { password: _clave, ...sinClave } = datosActualizar;
+                        setUsuarioSesion({ ...usuarioSesion, ...sinClave, permisos: formEditarUsuario.permisos });
                     }
                     setUsuarioEditando(null);
                     fetchData();
                 } catch (err) {
-                    mostrarToast('Error al guardar datos.', 'error');
+                    mostrarToast(err.mensaje || 'Error al guardar datos.', 'error');
                 }
             };
 
@@ -1655,6 +1658,10 @@
 
             const esAdminPrincipal = usuarioSesion && usuarioSesion.rol === 'ADMIN_PRINCIPAL';
 
+            if (!sesionVerificada && !usuarioSesion) {
+                return <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">Cargando…</div>;
+            }
+
             if (!usuarioSesion) {
                 return (
                     <div className="min-h-screen flex items-center justify-center p-4">
@@ -1662,7 +1669,7 @@
                             <div className="text-center space-y-2">
                                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-2xl mx-auto shadow-xl shadow-indigo-500/30 border border-white/20">🏢</div>
                                 <h1 className={`text-3xl font-black tracking-widest ${modoClaro ? 'text-slate-800' : 'bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent'}`}>SICI</h1>
-                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO (AIRTABLE)</p>
+                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO</p>
                             </div>
 
                             <form onSubmit={handleLogin} className="space-y-4">
@@ -1910,7 +1917,7 @@
                                                 </div>
                                                 <div>
                                                     <label className={`block text-[11px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Nueva Contraseña</label>
-                                                    <input autoComplete="new-password" type="text" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
+                                                    <input autoComplete="new-password" type="password" placeholder="Dejar en blanco para no cambiarla" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
                                                 </div>
 
                                                 <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-3 rounded-xl text-xs shadow-md shadow-emerald-600/30 cursor-pointer btn-haptic border border-emerald-400/20">
