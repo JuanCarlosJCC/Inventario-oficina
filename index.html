@@ -1659,7 +1659,7 @@
             const esAdminPrincipal = usuarioSesion && usuarioSesion.rol === 'ADMIN_PRINCIPAL';
 
             if (!sesionVerificada && !usuarioSesion) {
-                return <div className="min-h-screen flex items-center justify-center text-sm text-slate-400">Cargando…</div>;
+                return null; // un instante, mientras el servidor confirma si ya hay sesión
             }
 
             if (!usuarioSesion) {
@@ -1669,7 +1669,7 @@
                             <div className="text-center space-y-2">
                                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-700 flex items-center justify-center text-2xl mx-auto shadow-xl shadow-indigo-500/30 border border-white/20">🏢</div>
                                 <h1 className={`text-3xl font-black tracking-widest ${modoClaro ? 'text-slate-800' : 'bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-transparent'}`}>SICI</h1>
-                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO</p>
+                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-wider">CONTROL DE INVENTARIO (AIRTABLE)</p>
                             </div>
 
                             <form onSubmit={handleLogin} className="space-y-4">
@@ -1917,7 +1917,7 @@
                                                 </div>
                                                 <div>
                                                     <label className={`block text-[11px] font-black uppercase mb-1 ${modoClaro ? 'text-slate-600' : 'text-slate-400'}`}>Nueva Contraseña</label>
-                                                    <input autoComplete="new-password" type="password" placeholder="Dejar en blanco para no cambiarla" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
+                                                    <input autoComplete="new-password" type="text" placeholder="Dejar en blanco para no cambiarla" value={formEditarUsuario.password} onChange={e => setFormEditarUsuario({...formEditarUsuario, password: e.target.value})} className={`w-full ${modoClaro ? 'bg-white border-slate-300 text-slate-800' : 'bg-slate-900 border-slate-700/80 text-white'} border rounded-xl px-3.5 py-2.5 text-xs font-mono outline-none focus:border-indigo-500`} required />
                                                 </div>
 
                                                 <button type="submit" className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black py-3 rounded-xl text-xs shadow-md shadow-emerald-600/30 cursor-pointer btn-haptic border border-emerald-400/20">
