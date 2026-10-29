@@ -1,0 +1,10 @@
+{
+  "name": "inventario-oficina",
+  "version": "2.0.0",
+  "private": true,
+  "description": "SICI - Control de inventario de oficina (inicio de sesión y datos en el servidor)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/seguridad.test.js"
+  }
+}
